@@ -83,6 +83,83 @@ function sanitizeUserPersona(input) {
   }
 }
 
+function sanitizeSocialMeta(input) {
+  const value = input && typeof input === 'object' ? input : {}
+  const roleAvatarMapSource =
+    value.roleAvatarMap && typeof value.roleAvatarMap === 'object' ? value.roleAvatarMap : {}
+  const friendGroupMapSource =
+    value.friendGroupMap && typeof value.friendGroupMap === 'object' ? value.friendGroupMap : {}
+  const relationshipMapSource =
+    value.relationshipMap && typeof value.relationshipMap === 'object' ? value.relationshipMap : {}
+  const groupMetaMapSource =
+    value.groupMetaMap && typeof value.groupMetaMap === 'object' ? value.groupMetaMap : {}
+  const friendGroupNames = Array.isArray(value.friendGroupNames)
+    ? Array.from(
+        new Set(
+          value.friendGroupNames
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+            .slice(0, 64),
+        ),
+      )
+    : []
+  if (!friendGroupNames.includes('默认分组')) {
+    friendGroupNames.unshift('默认分组')
+  }
+  const roleAvatarMap = {}
+  for (const [roleId, rawUrl] of Object.entries(roleAvatarMapSource)) {
+    const key = String(roleId || '').trim()
+    const url = String(rawUrl || '').trim()
+    if (!key || !url) continue
+    roleAvatarMap[key] = url.slice(0, 5_000_000)
+  }
+  const friendGroupMap = {}
+  for (const [roleId, rawName] of Object.entries(friendGroupMapSource)) {
+    const key = String(roleId || '').trim()
+    const name = String(rawName || '').trim()
+    if (!key || !name) continue
+    friendGroupMap[key] = name.slice(0, 40)
+  }
+  const relationshipMap = {}
+  for (const [roleId, rawMeta] of Object.entries(relationshipMapSource)) {
+    if (!rawMeta || typeof rawMeta !== 'object') continue
+    const key = String(roleId || '').trim()
+    if (!key) continue
+    relationshipMap[key] = {
+      intimacy: Math.max(0, Math.min(100, Number(rawMeta.intimacy || 0))),
+      autoInteractEnabled: Boolean(rawMeta.autoInteractEnabled),
+    }
+  }
+  const groupMetaMap = {}
+  for (const [roleId, rawMeta] of Object.entries(groupMetaMapSource)) {
+    if (!rawMeta || typeof rawMeta !== 'object') continue
+    const key = String(roleId || '').trim()
+    if (!key) continue
+    groupMetaMap[key] = {
+      notice: String(rawMeta.notice || '').trim().slice(0, 800),
+      ownerRoleId: String(rawMeta.ownerRoleId || 'me').trim() || 'me',
+      memberRoleIds: Array.isArray(rawMeta.memberRoleIds)
+        ? Array.from(new Set(rawMeta.memberRoleIds.map((id) => String(id || '').trim()).filter(Boolean)))
+        : [],
+      adminRoleIds: Array.isArray(rawMeta.adminRoleIds)
+        ? Array.from(new Set(rawMeta.adminRoleIds.map((id) => String(id || '').trim()).filter(Boolean)))
+        : [],
+      pendingMemberRoleIds: Array.isArray(rawMeta.pendingMemberRoleIds)
+        ? Array.from(
+            new Set(rawMeta.pendingMemberRoleIds.map((id) => String(id || '').trim()).filter(Boolean)),
+          )
+        : [],
+    }
+  }
+  return {
+    roleAvatarMap,
+    friendGroupNames,
+    friendGroupMap,
+    relationshipMap,
+    groupMetaMap,
+  }
+}
+
 function resolveApiConfig(store) {
   return {
     baseUrl: String(store.apiConfig?.baseUrl || '').trim() || defaultApiBaseUrl,
@@ -138,6 +215,28 @@ app.put('/api/roles/:roleId', (req, res) => {
   } catch (error) {
     logError('roles:update', error)
     res.status(400).json({ message: error instanceof Error ? error.message : '更新角色失败' })
+  }
+})
+
+app.delete('/api/roles/:roleId', (req, res) => {
+  try {
+    const store = loadStore()
+    const roleId = String(req.params.roleId || '').trim()
+    const exists = store.roles.some((item) => item.id === roleId)
+    if (!exists) {
+      return res.status(404).json({ code: 'not_found', message: '角色不存在' })
+    }
+    store.roles = store.roles.filter((item) => item.id !== roleId)
+    for (const [sessionId, session] of Object.entries(store.conversations || {})) {
+      if (session && session.roleId === roleId) {
+        delete store.conversations[sessionId]
+      }
+    }
+    saveStore(store)
+    return res.json({ ok: true, roleId })
+  } catch (error) {
+    logError('roles:delete', error)
+    return res.status(400).json({ message: error instanceof Error ? error.message : '删除角色失败' })
   }
 })
 
@@ -208,6 +307,25 @@ app.put('/api/user-persona', (req, res) => {
   } catch (error) {
     logError('user-persona:update', error)
     res.status(400).json({ message: error instanceof Error ? error.message : '保存用户人设失败' })
+  }
+})
+
+app.get('/api/social-meta', (_req, res) => {
+  const store = loadStore()
+  const meta = sanitizeSocialMeta(store.socialMeta || {})
+  res.json(meta)
+})
+
+app.put('/api/social-meta', (req, res) => {
+  try {
+    const store = loadStore()
+    const socialMeta = sanitizeSocialMeta(req.body)
+    store.socialMeta = socialMeta
+    saveStore(store)
+    res.json({ ok: true, socialMeta })
+  } catch (error) {
+    logError('social-meta:update', error)
+    res.status(400).json({ message: error instanceof Error ? error.message : '保存社交元数据失败' })
   }
 })
 

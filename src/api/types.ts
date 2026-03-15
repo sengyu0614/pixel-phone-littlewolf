@@ -89,6 +89,27 @@ export type ChatResponse = {
   conversation: ChatMessage[]
 }
 
+export type RelationshipMeta = {
+  intimacy: number
+  autoInteractEnabled: boolean
+}
+
+export type GroupMeta = {
+  memberRoleIds: string[]
+  notice: string
+  ownerRoleId: string
+  adminRoleIds: string[]
+  pendingMemberRoleIds: string[]
+}
+
+export type SocialMeta = {
+  roleAvatarMap: Record<string, string>
+  friendGroupNames: string[]
+  friendGroupMap: Record<string, string>
+  relationshipMap: Record<string, RelationshipMeta>
+  groupMetaMap: Record<string, GroupMeta>
+}
+
 export class UnifiedApiError extends Error {
   code: string
   status: number

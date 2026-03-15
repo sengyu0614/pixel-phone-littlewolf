@@ -1,4 +1,5 @@
 import { ChatApp } from './ChatApp/ChatApp'
+import { DiaryApp, MomentsApp, WalletApp } from './ExtraFeatureApps'
 import type { AppRuntimeProps } from '../simulator/types'
 
 export function RoleMessagesApp(props: AppRuntimeProps) {
@@ -19,4 +20,16 @@ export function RolePersonaApp(props: AppRuntimeProps) {
 
 export function RoleSettingsApp(props: AppRuntimeProps) {
   return <ChatApp {...props} defaultTab="settings" hideTabBar appTitle="设置" enableSettingsSubTabs />
+}
+
+export function RoleMomentsApp(props: AppRuntimeProps) {
+  return <MomentsApp {...props} />
+}
+
+export function RoleDiaryApp(props: AppRuntimeProps) {
+  return <DiaryApp {...props} />
+}
+
+export function RoleWalletApp(props: AppRuntimeProps) {
+  return <WalletApp {...props} />
 }

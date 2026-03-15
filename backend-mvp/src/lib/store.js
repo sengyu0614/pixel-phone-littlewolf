@@ -45,6 +45,13 @@ const initialState = {
     privateMemory: "",
     allowPrivateForAI: false
   },
+  socialMeta: {
+    roleAvatarMap: {},
+    friendGroupNames: ["默认分组"],
+    friendGroupMap: {},
+    relationshipMap: {},
+    groupMetaMap: {}
+  },
   aiProviders: [],
   aiModels: [],
   aiPresets: [],

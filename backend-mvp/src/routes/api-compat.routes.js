@@ -89,6 +89,18 @@ export function createApiCompatRouter(store) {
     res.json({ role });
   });
 
+  router.delete("/roles/:roleId", (req, res) => {
+    const db = store.read();
+    const roleIndex = db.roles.findIndex((r) => r.id === req.params.roleId);
+    if (roleIndex < 0) {
+      return res.status(404).json({ code: "role_not_found", message: "角色不存在" });
+    }
+    db.roles.splice(roleIndex, 1);
+    db.roleSessions = (db.roleSessions || []).filter((s) => s.roleId !== req.params.roleId);
+    store.write(db);
+    res.json({ ok: true, roleId: req.params.roleId });
+  });
+
   router.put("/roles/:roleId/worldbook", (req, res) => {
     const schema = z.object({ worldBookId: z.string().default("") });
     const input = parseOr400(schema, req.body, res);
@@ -177,6 +189,18 @@ export function createApiCompatRouter(store) {
     db.userPersona = input;
     store.write(db);
     res.json({ ok: true, userPersona: db.userPersona });
+  });
+
+  router.get("/social-meta", (_req, res) => {
+    const db = store.read();
+    res.json(sanitizeSocialMeta(db.socialMeta || {}));
+  });
+
+  router.put("/social-meta", (req, res) => {
+    const db = store.read();
+    db.socialMeta = sanitizeSocialMeta(req.body || {});
+    store.write(db);
+    res.json({ ok: true, socialMeta: db.socialMeta });
   });
 
   router.post("/chat", (req, res) => {
@@ -305,4 +329,81 @@ function maskKey(value) {
   if (!value) return "";
   if (value.length <= 6) return "***";
   return `${value.slice(0, 3)}***${value.slice(-3)}`;
+}
+
+function sanitizeSocialMeta(input) {
+  const value = input && typeof input === "object" ? input : {};
+  const roleAvatarMapSource =
+    value.roleAvatarMap && typeof value.roleAvatarMap === "object" ? value.roleAvatarMap : {};
+  const friendGroupMapSource =
+    value.friendGroupMap && typeof value.friendGroupMap === "object" ? value.friendGroupMap : {};
+  const relationshipMapSource =
+    value.relationshipMap && typeof value.relationshipMap === "object" ? value.relationshipMap : {};
+  const groupMetaMapSource =
+    value.groupMetaMap && typeof value.groupMetaMap === "object" ? value.groupMetaMap : {};
+  const friendGroupNames = Array.isArray(value.friendGroupNames)
+    ? Array.from(
+        new Set(
+          value.friendGroupNames
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+            .slice(0, 64)
+        )
+      )
+    : [];
+  if (!friendGroupNames.includes("默认分组")) {
+    friendGroupNames.unshift("默认分组");
+  }
+  const roleAvatarMap = {};
+  for (const [roleId, rawUrl] of Object.entries(roleAvatarMapSource)) {
+    const key = String(roleId || "").trim();
+    const url = String(rawUrl || "").trim();
+    if (!key || !url) continue;
+    roleAvatarMap[key] = url.slice(0, 5_000_000);
+  }
+  const friendGroupMap = {};
+  for (const [roleId, rawName] of Object.entries(friendGroupMapSource)) {
+    const key = String(roleId || "").trim();
+    const name = String(rawName || "").trim();
+    if (!key || !name) continue;
+    friendGroupMap[key] = name.slice(0, 40);
+  }
+  const relationshipMap = {};
+  for (const [roleId, rawMeta] of Object.entries(relationshipMapSource)) {
+    if (!rawMeta || typeof rawMeta !== "object") continue;
+    const key = String(roleId || "").trim();
+    if (!key) continue;
+    relationshipMap[key] = {
+      intimacy: Math.max(0, Math.min(100, Number(rawMeta.intimacy || 0))),
+      autoInteractEnabled: Boolean(rawMeta.autoInteractEnabled)
+    };
+  }
+  const groupMetaMap = {};
+  for (const [roleId, rawMeta] of Object.entries(groupMetaMapSource)) {
+    if (!rawMeta || typeof rawMeta !== "object") continue;
+    const key = String(roleId || "").trim();
+    if (!key) continue;
+    groupMetaMap[key] = {
+      notice: String(rawMeta.notice || "").trim().slice(0, 800),
+      ownerRoleId: String(rawMeta.ownerRoleId || "me").trim() || "me",
+      memberRoleIds: Array.isArray(rawMeta.memberRoleIds)
+        ? Array.from(new Set(rawMeta.memberRoleIds.map((id) => String(id || "").trim()).filter(Boolean)))
+        : [],
+      adminRoleIds: Array.isArray(rawMeta.adminRoleIds)
+        ? Array.from(new Set(rawMeta.adminRoleIds.map((id) => String(id || "").trim()).filter(Boolean)))
+        : [],
+      pendingMemberRoleIds: Array.isArray(rawMeta.pendingMemberRoleIds)
+        ? Array.from(
+            new Set(rawMeta.pendingMemberRoleIds.map((id) => String(id || "").trim()).filter(Boolean))
+          )
+        : []
+    };
+  }
+  return {
+    roleAvatarMap,
+    friendGroupNames,
+    friendGroupMap,
+    relationshipMap,
+    groupMetaMap
+  };
 }
