@@ -36,7 +36,7 @@ jobs:
       - name: Build app for GitHub Pages path
         run: |
           npx tsc -b
-          npx vite build --base=/pixel-phone-simulator/
+          npx vite build --base=/pixel-phone-littlewolf/
           cp dist/index.html dist/404.html
 
       - name: Setup Pages
