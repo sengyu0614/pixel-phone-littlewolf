@@ -33,6 +33,9 @@ import { UnifiedApiError } from '../../api/types'
 import { webPlatformBridge } from '../../platform/platformBridge'
 import { setButtonBipEnabled } from '../../platform/soundEffects'
 import type { AppRuntimeProps } from '../../simulator/types'
+import { resolveUiFeatureFlags, saveUiFeatureFlags } from '../../theme/featureFlags'
+import type { UiFeatureFlagKey, UiFeatureFlags } from '../../theme/featureFlags'
+import { applyThemeMode } from '../../theme/themeMode'
 
 export type TabKey = 'roles' | 'chat' | 'worldbook' | 'editor' | 'settings' | 'chat-style'
 type ChatViewMode = 'list' | 'detail'
@@ -256,6 +259,7 @@ export function ChatApp({
   const [isSavingConfig, setIsSavingConfig] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [isSavingChatSettings, setIsSavingChatSettings] = useState(false)
+  const [uiFlags, setUiFlags] = useState<UiFeatureFlags>(() => resolveUiFeatureFlags())
   const [showPlusPanel, setShowPlusPanel] = useState(false)
   const [sessionMap, setSessionMap] = useState<Record<string, SessionState>>({})
   const [pinnedRoleIds, setPinnedRoleIds] = useState<Record<string, boolean>>({})
@@ -290,6 +294,14 @@ export function ChatApp({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const personaImportInputRef = useRef<HTMLInputElement | null>(null)
   const personaHighlightTimerRef = useRef<number | null>(null)
+
+  function updateUiFlag(key: UiFeatureFlagKey, enabled: boolean) {
+    setUiFlags((prev) => {
+      const next = { ...prev, [key]: enabled }
+      saveUiFeatureFlags(next)
+      return next
+    })
+  }
 
   const selectedRole = useMemo(
     () => roles.find((item) => item.id === selectedRoleId) ?? null,
@@ -403,6 +415,10 @@ export function ChatApp({
   useEffect(() => {
     window.localStorage.setItem('pixel-chat-local-theme', JSON.stringify(localTheme))
   }, [localTheme])
+
+  useEffect(() => {
+    applyThemeMode(localTheme.nightMode ? 'night' : 'light')
+  }, [localTheme.nightMode])
 
   useEffect(() => {
     try {
@@ -1127,7 +1143,9 @@ export function ChatApp({
 
   return (
     <div
-      className={`chat-app ${localTheme.nightMode ? 'chat-app-night' : ''}`}
+      className={`chat-app theme-${localTheme.nightMode ? 'night' : 'light'} ${
+        uiFlags.newChatUI ? 'ui-chat-modern' : ''
+      } ${uiFlags.newSettingsUI ? 'ui-settings-modern' : ''}`}
       style={{
         fontFamily: localTheme.fontFamily,
         backgroundImage: localTheme.wallpaperDataUrl ? `url(${localTheme.wallpaperDataUrl})` : undefined,
@@ -1326,7 +1344,7 @@ export function ChatApp({
       ) : null}
 
       {tab === 'chat' ? (
-        <div className="wechat-shell">
+        <div className={`wechat-shell ${uiFlags.newChatUI ? 'wechat-shell-modern' : ''}`}>
           {(chatViewMode === 'list' || !selectedRole) && (
             <div className="conversation-list">
               <div className="wechat-head">消息</div>
@@ -1377,7 +1395,7 @@ export function ChatApp({
               </div>
 
               <div
-                className="chat-panel"
+                className={`chat-panel ${uiFlags.newChatUI ? 'chat-panel-modern' : ''}`}
                 style={{
                   backgroundImage: localTheme.wallpaperDataUrl ? `url(${localTheme.wallpaperDataUrl})` : undefined,
                   backgroundSize: 'cover',
@@ -1556,7 +1574,7 @@ export function ChatApp({
                 </div>
               ) : null}
 
-              <div className="chat-input-row">
+              <div className={`chat-input-row ${uiFlags.newChatUI ? 'chat-input-row-modern' : ''}`}>
                 <PixelButton size="sm" variant="ghost" onClick={() => setShowPlusPanel((prev) => !prev)}>
                   +
                 </PixelButton>
@@ -1799,7 +1817,46 @@ export function ChatApp({
       ) : null}
 
       {tab === 'settings' ? (
-        <div className="editor-panel">
+        <div className={`editor-panel ${uiFlags.newSettingsUI ? 'settings-modern-layout' : ''}`}>
+          <div className="worldbook-editor settings-flag-panel">
+            <h4>界面升级开关</h4>
+            <p className="text-pixel-text-muted">可按模块灰度启用，关闭后立即回退旧界面。</p>
+            <div className="settings-toggle-grid">
+              <label className="settings-toggle-item">
+                <span>首页与导航新样式</span>
+                <select
+                  className="pixel-select"
+                  value={uiFlags.newHomeUI ? '1' : '0'}
+                  onChange={(event) => updateUiFlag('newHomeUI', event.target.value === '1')}
+                >
+                  <option value="1">开启</option>
+                  <option value="0">关闭</option>
+                </select>
+              </label>
+              <label className="settings-toggle-item">
+                <span>聊天页新样式</span>
+                <select
+                  className="pixel-select"
+                  value={uiFlags.newChatUI ? '1' : '0'}
+                  onChange={(event) => updateUiFlag('newChatUI', event.target.value === '1')}
+                >
+                  <option value="1">开启</option>
+                  <option value="0">关闭</option>
+                </select>
+              </label>
+              <label className="settings-toggle-item">
+                <span>设置页新样式</span>
+                <select
+                  className="pixel-select"
+                  value={uiFlags.newSettingsUI ? '1' : '0'}
+                  onChange={(event) => updateUiFlag('newSettingsUI', event.target.value === '1')}
+                >
+                  <option value="1">开启</option>
+                  <option value="0">关闭</option>
+                </select>
+              </label>
+            </div>
+          </div>
           <div className="worldbook-editor">
             <h4>API 设置</h4>
             <label className="text-pixel-text-muted">连接配置</label>
@@ -1917,8 +1974,9 @@ export function ChatApp({
       ) : null}
 
       {tab === 'chat-style' ? (
-        <div className="editor-panel">
-          <h4>聊天设置</h4>
+        <div className={`editor-panel ${uiFlags.newSettingsUI ? 'settings-modern-layout' : ''}`}>
+          <section className={`worldbook-editor ${uiFlags.newSettingsUI ? 'settings-card' : ''}`}>
+            <h4>聊天设置</h4>
           <label className="text-pixel-text-muted">显示时间戳</label>
           <select
             className="pixel-select"
@@ -2020,7 +2078,9 @@ export function ChatApp({
             <option value="1">开启</option>
             <option value="0">关闭</option>
           </select>
-          <h4>主题美化</h4>
+          </section>
+          <section className={`worldbook-editor ${uiFlags.newSettingsUI ? 'settings-card' : ''}`}>
+            <h4>主题美化</h4>
           <label className="text-pixel-text-muted">字体</label>
           <select
             className="pixel-select"
@@ -2096,8 +2156,9 @@ export function ChatApp({
             className="hidden-file-input"
             onChange={handleWallpaperUpload}
           />
-
-          <div className="style-preview">
+          </section>
+          <section className={`worldbook-editor ${uiFlags.newSettingsUI ? 'settings-card' : ''}`}>
+            <div className="style-preview">
             <p className="text-pixel-text-muted">实时预览</p>
             <div className="message-row assistant">
               {!shouldHideAvatar(chatSettings.hideAvatarMode, 'assistant') ? (
@@ -2151,16 +2212,17 @@ export function ChatApp({
                 {chatSettings.showReadReceipt && chatSettings.readReceiptStyle === 'avatar' ? <span>已读</span> : null}
               </div>
             </div>
-          </div>
-          <PixelButton onClick={handleSaveChatSettings} disabled={isSavingChatSettings}>
-            {isSavingChatSettings ? '保存中...' : '保存聊天设置'}
-          </PixelButton>
+            </div>
+            <PixelButton onClick={handleSaveChatSettings} disabled={isSavingChatSettings}>
+              {isSavingChatSettings ? '保存中...' : '保存聊天设置'}
+            </PixelButton>
+          </section>
         </div>
       ) : null}
 
       {callOverlay && selectedRole ? (
         <div className="call-overlay">
-          <div className="call-card">
+          <div className={`call-card ${uiFlags.newChatUI ? 'call-card-modern' : ''}`}>
             <p className="text-pixel-text-muted">
               {callOverlay.mode === 'voice' ? '语音通话' : '视频通话'}
             </p>

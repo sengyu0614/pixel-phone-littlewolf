@@ -3,7 +3,11 @@ import { PixelButton, PixelWindow } from '../components/ui'
 import type { AppDefinition } from './types'
 import { useSimulatorStore } from './store/simulatorStore'
 
-export function AppRuntime() {
+type AppRuntimeProps = {
+  modernHome?: boolean
+}
+
+export function AppRuntime({ modernHome = false }: AppRuntimeProps) {
   const activeAppId = useSimulatorStore((state) => state.activeAppId)
   const openedAppIds = useSimulatorStore((state) => state.openedAppIds)
   const switchApp = useSimulatorStore((state) => state.switchApp)
@@ -27,8 +31,8 @@ export function AppRuntime() {
   const ActiveComponent = activeApp.component
 
   return (
-    <section className="app-runtime">
-      <header className="app-runtime-header">
+    <section className={`app-runtime ${modernHome ? 'app-runtime-modern' : ''}`}>
+      <header className={`app-runtime-header ${modernHome ? 'app-runtime-header-modern' : ''}`}>
         <div className="app-runtime-title">
           <p className="text-xs text-pixel-text-muted">RUNNING</p>
           <h2 className="text-sm text-pixel-text">{activeApp.name}</h2>
@@ -40,7 +44,7 @@ export function AppRuntime() {
           </PixelButton>
         </div>
       </header>
-      <div className="app-runtime-switcher">
+      <div className={`app-runtime-switcher ${modernHome ? 'app-runtime-switcher-modern' : ''}`}>
         {openedApps.map((app) => (
           <PixelButton
             key={app.id}

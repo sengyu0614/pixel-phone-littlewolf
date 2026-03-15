@@ -2,12 +2,16 @@ import { appRegistry } from './appsRegistry'
 import { PixelIcon } from '../components/ui'
 import { useSimulatorStore } from './store/simulatorStore'
 
-export function Launcher() {
+type LauncherProps = {
+  modernHome?: boolean
+}
+
+export function Launcher({ modernHome = false }: LauncherProps) {
   const openApp = useSimulatorStore((state) => state.openApp)
   const openedAppIds = useSimulatorStore((state) => state.openedAppIds)
 
   return (
-    <section className="launcher-grid">
+    <section className={`launcher-grid ${modernHome ? 'launcher-grid-modern' : ''}`}>
       {appRegistry.map((app) => (
         <PixelIcon
           key={app.id}
