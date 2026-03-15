@@ -56,9 +56,10 @@ export function createChatRouter(store) {
     if (!member) {
       return res.status(403).json({ error: "not_in_conversation" });
     }
-    const blocked = db.blacklists.find(
-      (b) => b.ownerId === member.userId && b.targetId === req.auth.sub
-    );
+    const otherMemberIds = db.conversationMembers
+      .filter((m) => m.conversationId === input.conversationId && m.userId !== req.auth.sub)
+      .map((m) => m.userId);
+    const blocked = db.blacklists.find((b) => otherMemberIds.includes(b.ownerId) && b.targetId === req.auth.sub);
     if (blocked) {
       return res.status(403).json({ error: "blacklisted" });
     }

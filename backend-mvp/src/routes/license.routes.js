@@ -13,6 +13,9 @@ export function createLicenseRouter(store, config) {
     deviceId: z.string().min(3),
     nickname: z.string().min(1).default("新用户")
   });
+  const refreshSchema = z.object({
+    deviceId: z.string().min(3)
+  });
 
   router.post("/activate", (req, res) => {
     const input = parseOr400(activateSchema, req.body, res);
@@ -20,7 +23,10 @@ export function createLicenseRouter(store, config) {
 
     const now = new Date().toISOString();
     const db = store.read();
-    const codeRow = db.activationCodes.find((c) => c.code === input.code);
+    const normalizedInputCode = input.code.trim().toUpperCase();
+    const codeRow = db.activationCodes.find(
+      (c) => (c.code || "").trim().toUpperCase() === normalizedInputCode
+    );
     if (!codeRow) {
       return res.status(400).json({ error: "invalid_code" });
     }
@@ -84,6 +90,35 @@ export function createLicenseRouter(store, config) {
       user,
       license
     });
+  });
+
+  router.post("/refresh", (req, res) => {
+    const input = parseOr400(refreshSchema, req.body, res);
+    if (!input) return;
+    const db = store.read();
+    const license = db.licenses.find(
+      (l) => l.deviceId === input.deviceId && l.revokeStatus === "normal"
+    );
+    if (!license) {
+      return res.status(404).json({ error: "license_not_found" });
+    }
+    const user = db.users.find((u) => u.id === license.userId);
+    if (!user) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+    const token = issueToken(user.id, input.deviceId, config.jwtSecret);
+    const payload = jwt.decode(token);
+    db.sessions.push({
+      id: uuidv4(),
+      userId: user.id,
+      sid: payload.sid,
+      deviceId: input.deviceId,
+      createdAt: new Date().toISOString(),
+      revoked: false
+    });
+    license.lastSeenAt = new Date().toISOString();
+    store.write(db);
+    return res.json({ token, user, license });
   });
 
   return router;

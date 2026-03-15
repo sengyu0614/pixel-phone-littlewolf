@@ -10,7 +10,7 @@ import type {
 import { UnifiedApiError } from './types'
 
 const API_BASE =
-  import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '' : 'http://localhost:8787')
+  import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '' : 'http://localhost:3030')
 
 type RequestOptions = RequestInit & {
   timeoutMs?: number

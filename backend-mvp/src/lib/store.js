@@ -6,9 +6,9 @@ const initialState = {
   activationCodes: [
     {
       id: uuidv4(),
-      code: "PIXEL-2026-DEMO",
+      code: "PIXEL-2026",
       status: "active",
-      maxUses: 1,
+      maxUses: 999999,
       usedCount: 0,
       expireAt: null,
       channel: "default"
@@ -20,6 +20,31 @@ const initialState = {
   conversations: [],
   conversationMembers: [],
   messages: [],
+  roles: [],
+  worldBooks: [],
+  roleSessions: [],
+  aiConfig: {
+    baseUrl: "",
+    model: "",
+    apiKey: "",
+    headers: {}
+  },
+  chatUiSettings: {
+    showTimestamp: true,
+    showSeconds: false,
+    timestampStyle: "bubble",
+    showReadReceipt: true,
+    readReceiptStyle: "bubble",
+    hideAvatarMode: "none",
+    myBubbleColor: "#4c1d95",
+    friendBubbleColor: "#312e81",
+    buttonBipEnabled: true
+  },
+  userPersona: {
+    readableMemory: "",
+    privateMemory: "",
+    allowPrivateForAI: false
+  },
   aiProviders: [],
   aiModels: [],
   aiPresets: [],
@@ -33,6 +58,7 @@ const initialState = {
   messageStates: [],
   blacklists: [],
   offlineModes: [],
+  dataJobs: [],
   audits: []
 };
 
@@ -79,6 +105,29 @@ function ensureFile(filePath) {
       parsed[k] = v;
       changed = true;
     }
+  }
+  const legacy = parsed.activationCodes.find(
+    (x) => (x.code || "").trim().toUpperCase() === "PIXEL-2026-DEMO"
+  );
+  if (legacy) {
+    legacy.code = "PIXEL-2026";
+    legacy.maxUses = 999999;
+    changed = true;
+  }
+  const hasNewTestCode = parsed.activationCodes.some(
+    (x) => (x.code || "").trim().toUpperCase() === "PIXEL-2026"
+  );
+  if (!hasNewTestCode) {
+    parsed.activationCodes.push({
+      id: uuidv4(),
+      code: "PIXEL-2026",
+      status: "active",
+      maxUses: 999999,
+      usedCount: 0,
+      expireAt: null,
+      channel: "default"
+    });
+    changed = true;
   }
   if (changed) {
     fs.writeFileSync(filePath, JSON.stringify(parsed, null, 2), "utf8");
