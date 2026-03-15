@@ -54,12 +54,58 @@ type MessageActionMenuState = {
 }
 
 type LocalThemeSettings = {
+  themeMode: 'light' | 'night' | 'custom'
   fontFamily: string
+  customFontUrl: string
+  fontSize: number
+  fontColor: string
   wallpaperDataUrl: string
+  sessionWallpaperMap: Record<string, string>
   avatarFrameColor: string
   avatarFrameSize: number
   avatarPendant: string
   nightMode: boolean
+  myBubbleRadius: number
+  friendBubbleRadius: number
+  myBubbleBorderWidth: number
+  friendBubbleBorderWidth: number
+  myBubbleBorderColor: string
+  friendBubbleBorderColor: string
+  customThemeBodyGradStart: string
+  customThemeBodyGradMid: string
+  customThemeBodyGradEnd: string
+  customThemeFrameBg: string
+  customThemeScreenBg: string
+  customThemeSurface1: string
+  customThemeSurface2: string
+  customThemeBorderSubtle: string
+}
+
+type BubblePreset = {
+  id: string
+  name: string
+  myBubbleColor: string
+  friendBubbleColor: string
+  myBubbleRadius: number
+  friendBubbleRadius: number
+  myBubbleBorderWidth: number
+  friendBubbleBorderWidth: number
+  myBubbleBorderColor: string
+  friendBubbleBorderColor: string
+}
+
+type ThemePreset = {
+  id: string
+  name: string
+  description: string
+  localTheme: Pick<
+    LocalThemeSettings,
+    'themeMode' | 'fontFamily' | 'avatarFrameColor' | 'avatarFrameSize' | 'avatarPendant'
+  >
+  bubbles: {
+    myBubbleColor: string
+    friendBubbleColor: string
+  }
 }
 
 type CallOverlayState = {
@@ -148,14 +194,84 @@ function defaultUserPersona(): UserPersonaMemory {
 
 function defaultLocalThemeSettings(): LocalThemeSettings {
   return {
+    themeMode: 'light',
     fontFamily: 'system-ui, "PingFang SC", "Microsoft YaHei", sans-serif',
+    customFontUrl: '',
+    fontSize: 14,
+    fontColor: '#f5f3ff',
     wallpaperDataUrl: '',
+    sessionWallpaperMap: {},
     avatarFrameColor: '#facc15',
     avatarFrameSize: 2,
     avatarPendant: '💫',
     nightMode: false,
+    myBubbleRadius: 6,
+    friendBubbleRadius: 6,
+    myBubbleBorderWidth: 2,
+    friendBubbleBorderWidth: 2,
+    myBubbleBorderColor: '#000000',
+    friendBubbleBorderColor: '#000000',
+    customThemeBodyGradStart: '#6f56c5',
+    customThemeBodyGradMid: '#2f2550',
+    customThemeBodyGradEnd: '#151021',
+    customThemeFrameBg: '#0e0b16',
+    customThemeScreenBg: '#251d3a',
+    customThemeSurface1: 'rgba(49, 37, 84, 0.72)',
+    customThemeSurface2: 'rgba(39, 29, 68, 0.92)',
+    customThemeBorderSubtle: 'rgba(226, 210, 255, 0.24)',
   }
 }
+
+const THEME_PRESETS: ThemePreset[] = [
+  {
+    id: 'fresh-purple',
+    name: '清爽紫',
+    description: '明亮紫调，日常聊天舒适',
+    localTheme: {
+      themeMode: 'light',
+      fontFamily: 'system-ui, "PingFang SC", "Microsoft YaHei", sans-serif',
+      avatarFrameColor: '#d7b6ff',
+      avatarFrameSize: 2,
+      avatarPendant: '✨',
+    },
+    bubbles: {
+      myBubbleColor: '#7a54df',
+      friendBubbleColor: '#4f5ecf',
+    },
+  },
+  {
+    id: 'night-purple',
+    name: '暗夜紫',
+    description: '深色低亮度，夜间护眼',
+    localTheme: {
+      themeMode: 'night',
+      fontFamily: 'system-ui, "PingFang SC", "Microsoft YaHei", sans-serif',
+      avatarFrameColor: '#8f6bce',
+      avatarFrameSize: 2,
+      avatarPendant: '🌙',
+    },
+    bubbles: {
+      myBubbleColor: '#5b3da9',
+      friendBubbleColor: '#2f3a86',
+    },
+  },
+  {
+    id: 'high-contrast',
+    name: '高对比',
+    description: '强化对比度与边界，信息更醒目',
+    localTheme: {
+      themeMode: 'night',
+      fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',
+      avatarFrameColor: '#f8f3ff',
+      avatarFrameSize: 3,
+      avatarPendant: '⚡',
+    },
+    bubbles: {
+      myBubbleColor: '#7f2fff',
+      friendBubbleColor: '#1f63ff',
+    },
+  },
+]
 
 function formatMessageTime(iso: string, showSeconds: boolean) {
   const date = new Date(iso)
@@ -269,9 +385,11 @@ export function ChatApp({
   const [messageActionMenu, setMessageActionMenu] = useState<MessageActionMenuState | null>(null)
   const [callOverlay, setCallOverlay] = useState<CallOverlayState | null>(null)
   const [localTheme, setLocalTheme] = useState<LocalThemeSettings>(defaultLocalThemeSettings())
+  const [bubblePresets, setBubblePresets] = useState<BubblePreset[]>([])
   const [showRoleQuickMenu, setShowRoleQuickMenu] = useState(false)
   const [showAddFriendForm, setShowAddFriendForm] = useState(false)
   const [showCreateGroupForm, setShowCreateGroupForm] = useState(false)
+  const [selectedThemePresetId, setSelectedThemePresetId] = useState<string>('')
   const [newFriendName, setNewFriendName] = useState('')
   const [newFriendDescription, setNewFriendDescription] = useState('')
   const [newFriendCharPersona, setNewFriendCharPersona] = useState('')
@@ -291,7 +409,8 @@ export function ChatApp({
   const [errorText, setErrorText] = useState('')
   const [successText, setSuccessText] = useState('')
   const longPressTimerRef = useRef<number | null>(null)
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const globalWallpaperInputRef = useRef<HTMLInputElement | null>(null)
+  const sessionWallpaperInputRef = useRef<HTMLInputElement | null>(null)
   const personaImportInputRef = useRef<HTMLInputElement | null>(null)
   const personaHighlightTimerRef = useRef<number | null>(null)
 
@@ -301,6 +420,40 @@ export function ChatApp({
       saveUiFeatureFlags(next)
       return next
     })
+  }
+
+  function detectThemePreset(theme: LocalThemeSettings, myBubbleColor: string, friendBubbleColor: string) {
+    return (
+      THEME_PRESETS.find(
+        (preset) =>
+          preset.localTheme.themeMode === theme.themeMode &&
+          preset.localTheme.fontFamily === theme.fontFamily &&
+          preset.localTheme.avatarFrameColor.toLowerCase() === theme.avatarFrameColor.toLowerCase() &&
+          preset.localTheme.avatarFrameSize === theme.avatarFrameSize &&
+          preset.localTheme.avatarPendant === theme.avatarPendant &&
+          preset.bubbles.myBubbleColor.toLowerCase() === myBubbleColor.toLowerCase() &&
+          preset.bubbles.friendBubbleColor.toLowerCase() === friendBubbleColor.toLowerCase(),
+      )?.id || ''
+    )
+  }
+
+  function applyThemePreset(presetId: string) {
+    const preset = THEME_PRESETS.find((item) => item.id === presetId)
+    if (!preset) return
+    setSelectedThemePresetId(preset.id)
+    setLocalTheme((prev) => ({
+      ...prev,
+      ...preset.localTheme,
+      nightMode: preset.localTheme.themeMode === 'night',
+      // 壁纸不跟预设覆盖，避免误清空用户上传内容
+      wallpaperDataUrl: prev.wallpaperDataUrl,
+    }))
+    setChatSettings((prev) => ({
+      ...prev,
+      myBubbleColor: preset.bubbles.myBubbleColor,
+      friendBubbleColor: preset.bubbles.friendBubbleColor,
+    }))
+    setSuccessText(`已应用主题预设：${preset.name}`)
   }
 
   const selectedRole = useMemo(
@@ -405,7 +558,21 @@ export function ChatApp({
       setLocalTheme((prev) => ({
         ...prev,
         ...parsed,
+        themeMode: parsed.themeMode ?? (parsed.nightMode ? 'night' : prev.themeMode),
+        nightMode: parsed.nightMode ?? prev.nightMode,
+        fontSize: Math.max(12, Math.min(24, Number(parsed.fontSize ?? prev.fontSize))),
         avatarFrameSize: Math.max(0, Number(parsed.avatarFrameSize ?? prev.avatarFrameSize)),
+        myBubbleRadius: Math.max(0, Number(parsed.myBubbleRadius ?? prev.myBubbleRadius)),
+        friendBubbleRadius: Math.max(0, Number(parsed.friendBubbleRadius ?? prev.friendBubbleRadius)),
+        myBubbleBorderWidth: Math.max(0, Number(parsed.myBubbleBorderWidth ?? prev.myBubbleBorderWidth)),
+        friendBubbleBorderWidth: Math.max(
+          0,
+          Number(parsed.friendBubbleBorderWidth ?? prev.friendBubbleBorderWidth),
+        ),
+        sessionWallpaperMap:
+          parsed.sessionWallpaperMap && typeof parsed.sessionWallpaperMap === 'object'
+            ? parsed.sessionWallpaperMap
+            : prev.sessionWallpaperMap,
       }))
     } catch {
       // 忽略损坏的本地主题配置，使用默认值
@@ -417,8 +584,79 @@ export function ChatApp({
   }, [localTheme])
 
   useEffect(() => {
-    applyThemeMode(localTheme.nightMode ? 'night' : 'light')
-  }, [localTheme.nightMode])
+    const matched = detectThemePreset(localTheme, chatSettings.myBubbleColor, chatSettings.friendBubbleColor)
+    setSelectedThemePresetId(matched)
+  }, [
+    localTheme,
+    chatSettings.myBubbleColor,
+    chatSettings.friendBubbleColor,
+  ])
+
+  useEffect(() => {
+    const effectiveNight =
+      localTheme.themeMode === 'night' || (localTheme.themeMode === 'custom' ? localTheme.nightMode : false)
+    applyThemeMode(effectiveNight ? 'night' : 'light')
+  }, [localTheme.themeMode, localTheme.nightMode])
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('pixel-chat-bubble-presets')
+      if (!raw) return
+      const parsed = JSON.parse(raw) as BubblePreset[]
+      if (!Array.isArray(parsed)) return
+      setBubblePresets(
+        parsed.filter((item) => item && typeof item.name === 'string').map((item) => ({
+          ...item,
+          myBubbleRadius: Math.max(0, Number(item.myBubbleRadius ?? 6)),
+          friendBubbleRadius: Math.max(0, Number(item.friendBubbleRadius ?? 6)),
+          myBubbleBorderWidth: Math.max(0, Number(item.myBubbleBorderWidth ?? 2)),
+          friendBubbleBorderWidth: Math.max(0, Number(item.friendBubbleBorderWidth ?? 2)),
+        })),
+      )
+    } catch {
+      // 忽略损坏的本地预设
+    }
+  }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem('pixel-chat-bubble-presets', JSON.stringify(bubblePresets))
+  }, [bubblePresets])
+
+  useEffect(() => {
+    if (!localTheme.customFontUrl.trim()) return
+    const font = new FontFace('PixelCustomWebFont', `url(${localTheme.customFontUrl.trim()})`)
+    void font
+      .load()
+      .then((loaded) => {
+        document.fonts.add(loaded)
+      })
+      .catch(() => {
+        setErrorText('自定义字体加载失败，请检查 URL')
+      })
+  }, [localTheme.customFontUrl])
+
+  useEffect(() => {
+    const root = document.documentElement
+    if (localTheme.themeMode !== 'custom') {
+      root.style.removeProperty('--theme-body-grad-start')
+      root.style.removeProperty('--theme-body-grad-mid')
+      root.style.removeProperty('--theme-body-grad-end')
+      root.style.removeProperty('--theme-frame-bg')
+      root.style.removeProperty('--theme-screen-bg')
+      root.style.removeProperty('--theme-surface-1')
+      root.style.removeProperty('--theme-surface-2')
+      root.style.removeProperty('--theme-border-subtle')
+      return
+    }
+    root.style.setProperty('--theme-body-grad-start', localTheme.customThemeBodyGradStart)
+    root.style.setProperty('--theme-body-grad-mid', localTheme.customThemeBodyGradMid)
+    root.style.setProperty('--theme-body-grad-end', localTheme.customThemeBodyGradEnd)
+    root.style.setProperty('--theme-frame-bg', localTheme.customThemeFrameBg)
+    root.style.setProperty('--theme-screen-bg', localTheme.customThemeScreenBg)
+    root.style.setProperty('--theme-surface-1', localTheme.customThemeSurface1)
+    root.style.setProperty('--theme-surface-2', localTheme.customThemeSurface2)
+    root.style.setProperty('--theme-border-subtle', localTheme.customThemeBorderSubtle)
+  }, [localTheme])
 
   useEffect(() => {
     try {
@@ -701,15 +939,91 @@ export function ChatApp({
     setCallOverlay(null)
   }
 
-  function handleWallpaperUpload(event: ChangeEvent<HTMLInputElement>) {
+  function handleWallpaperUpload(event: ChangeEvent<HTMLInputElement>, target: 'global' | 'session') {
     const file = event.target.files?.[0]
     if (!file) return
+    if (target === 'session' && !activeSessionId) {
+      setErrorText('请先打开一个聊天会话')
+      return
+    }
     const reader = new FileReader()
     reader.onload = () => {
-      setLocalTheme((prev) => ({ ...prev, wallpaperDataUrl: String(reader.result || '') }))
+      const dataUrl = String(reader.result || '')
+      setLocalTheme((prev) =>
+        target === 'global'
+          ? { ...prev, wallpaperDataUrl: dataUrl }
+          : {
+              ...prev,
+              sessionWallpaperMap: {
+                ...prev.sessionWallpaperMap,
+                [activeSessionId]: dataUrl,
+              },
+            },
+      )
+      setSuccessText(target === 'global' ? '已设置全局聊天背景' : '已设置当前聊天背景')
     }
     reader.readAsDataURL(file)
     event.target.value = ''
+  }
+
+  function applyBubblePreset(presetId: string) {
+    const preset = bubblePresets.find((item) => item.id === presetId)
+    if (!preset) {
+      setErrorText('预设不存在')
+      return
+    }
+    setChatSettings((prev) => ({
+      ...prev,
+      myBubbleColor: preset.myBubbleColor,
+      friendBubbleColor: preset.friendBubbleColor,
+    }))
+    setLocalTheme((prev) => ({
+      ...prev,
+      myBubbleRadius: preset.myBubbleRadius,
+      friendBubbleRadius: preset.friendBubbleRadius,
+      myBubbleBorderWidth: preset.myBubbleBorderWidth,
+      friendBubbleBorderWidth: preset.friendBubbleBorderWidth,
+      myBubbleBorderColor: preset.myBubbleBorderColor,
+      friendBubbleBorderColor: preset.friendBubbleBorderColor,
+    }))
+    setSuccessText(`已应用预设：${preset.name}`)
+  }
+
+  function saveBubblePreset() {
+    const name = window.prompt('请输入气泡预设名称')
+    if (!name) return
+    const trimmed = name.trim()
+    if (!trimmed) return
+    const preset: BubblePreset = {
+      id: `bubble-preset-${Date.now()}`,
+      name: trimmed,
+      myBubbleColor: chatSettings.myBubbleColor,
+      friendBubbleColor: chatSettings.friendBubbleColor,
+      myBubbleRadius: localTheme.myBubbleRadius,
+      friendBubbleRadius: localTheme.friendBubbleRadius,
+      myBubbleBorderWidth: localTheme.myBubbleBorderWidth,
+      friendBubbleBorderWidth: localTheme.friendBubbleBorderWidth,
+      myBubbleBorderColor: localTheme.myBubbleBorderColor,
+      friendBubbleBorderColor: localTheme.friendBubbleBorderColor,
+    }
+    setBubblePresets((prev) => [...prev.filter((item) => item.name !== trimmed), preset])
+    setSuccessText(`已保存预设：${trimmed}`)
+  }
+
+  function openBubblePresetSelector() {
+    if (bubblePresets.length === 0) {
+      setErrorText('暂无预设，请先保存')
+      return
+    }
+    const lines = bubblePresets.map((item, index) => `${index + 1}. ${item.name}`)
+    const input = window.prompt(`请输入预设序号：\n${lines.join('\n')}`)
+    if (!input) return
+    const selected = bubblePresets[Number(input) - 1]
+    if (!selected) {
+      setErrorText('预设序号无效')
+      return
+    }
+    applyBubblePreset(selected.id)
   }
 
   async function handleBindSessionWorldBook(worldBookId: string) {
@@ -1143,11 +1457,19 @@ export function ChatApp({
 
   return (
     <div
-      className={`chat-app theme-${localTheme.nightMode ? 'night' : 'light'} ${
+      className={`chat-app theme-${
+        localTheme.themeMode === 'night' || (localTheme.themeMode === 'custom' && localTheme.nightMode)
+          ? 'night'
+          : 'light'
+      } ${
         uiFlags.newChatUI ? 'ui-chat-modern' : ''
       } ${uiFlags.newSettingsUI ? 'ui-settings-modern' : ''}`}
       style={{
-        fontFamily: localTheme.fontFamily,
+        fontFamily: localTheme.customFontUrl
+          ? `"PixelCustomWebFont", ${localTheme.fontFamily}`
+          : localTheme.fontFamily,
+        fontSize: `${localTheme.fontSize}px`,
+        color: localTheme.fontColor,
         backgroundImage: localTheme.wallpaperDataUrl ? `url(${localTheme.wallpaperDataUrl})` : undefined,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
@@ -1397,7 +1719,10 @@ export function ChatApp({
               <div
                 className={`chat-panel ${uiFlags.newChatUI ? 'chat-panel-modern' : ''}`}
                 style={{
-                  backgroundImage: localTheme.wallpaperDataUrl ? `url(${localTheme.wallpaperDataUrl})` : undefined,
+                  backgroundImage:
+                    (localTheme.sessionWallpaperMap[activeSessionId] || localTheme.wallpaperDataUrl)
+                      ? `url(${localTheme.sessionWallpaperMap[activeSessionId] || localTheme.wallpaperDataUrl})`
+                      : undefined,
                   backgroundSize: 'cover',
                   backgroundPosition: 'center',
                 }}
@@ -1434,6 +1759,18 @@ export function ChatApp({
                           message.role === 'user'
                             ? chatSettings.myBubbleColor
                             : chatSettings.friendBubbleColor,
+                        borderRadius:
+                          message.role === 'user'
+                            ? `${localTheme.myBubbleRadius}px`
+                            : `${localTheme.friendBubbleRadius}px`,
+                        borderWidth:
+                          message.role === 'user'
+                            ? `${localTheme.myBubbleBorderWidth}px`
+                            : `${localTheme.friendBubbleBorderWidth}px`,
+                        borderColor:
+                          message.role === 'user'
+                            ? localTheme.myBubbleBorderColor
+                            : localTheme.friendBubbleBorderColor,
                       }}
                       onContextMenu={(event) => {
                         event.preventDefault()
@@ -2065,6 +2402,76 @@ export function ChatApp({
               setChatSettings((prev) => ({ ...prev, friendBubbleColor: event.target.value }))
             }
           />
+          <label className="text-pixel-text-muted">我的气泡圆角（px）</label>
+          <input
+            className="pixel-input"
+            type="range"
+            min={0}
+            max={28}
+            value={localTheme.myBubbleRadius}
+            onChange={(event) =>
+              setLocalTheme((prev) => ({ ...prev, myBubbleRadius: Number(event.target.value) }))
+            }
+          />
+          <label className="text-pixel-text-muted">对方气泡圆角（px）</label>
+          <input
+            className="pixel-input"
+            type="range"
+            min={0}
+            max={28}
+            value={localTheme.friendBubbleRadius}
+            onChange={(event) =>
+              setLocalTheme((prev) => ({ ...prev, friendBubbleRadius: Number(event.target.value) }))
+            }
+          />
+          <label className="text-pixel-text-muted">我的气泡描边宽度（px）</label>
+          <input
+            className="pixel-input"
+            type="range"
+            min={0}
+            max={6}
+            value={localTheme.myBubbleBorderWidth}
+            onChange={(event) =>
+              setLocalTheme((prev) => ({ ...prev, myBubbleBorderWidth: Number(event.target.value) }))
+            }
+          />
+          <label className="text-pixel-text-muted">对方气泡描边宽度（px）</label>
+          <input
+            className="pixel-input"
+            type="range"
+            min={0}
+            max={6}
+            value={localTheme.friendBubbleBorderWidth}
+            onChange={(event) =>
+              setLocalTheme((prev) => ({ ...prev, friendBubbleBorderWidth: Number(event.target.value) }))
+            }
+          />
+          <label className="text-pixel-text-muted">我的气泡描边颜色</label>
+          <input
+            className="pixel-input"
+            type="color"
+            value={localTheme.myBubbleBorderColor}
+            onChange={(event) =>
+              setLocalTheme((prev) => ({ ...prev, myBubbleBorderColor: event.target.value }))
+            }
+          />
+          <label className="text-pixel-text-muted">对方气泡描边颜色</label>
+          <input
+            className="pixel-input"
+            type="color"
+            value={localTheme.friendBubbleBorderColor}
+            onChange={(event) =>
+              setLocalTheme((prev) => ({ ...prev, friendBubbleBorderColor: event.target.value }))
+            }
+          />
+          <div className="chat-toolbar">
+            <PixelButton size="sm" variant="ghost" onClick={openBubblePresetSelector}>
+              套用预设
+            </PixelButton>
+            <PixelButton size="sm" variant="ghost" onClick={saveBubblePreset}>
+              保存预设
+            </PixelButton>
+          </div>
           <label className="text-pixel-text-muted">按钮音效（BIP）</label>
           <select
             className="pixel-select"
@@ -2081,6 +2488,44 @@ export function ChatApp({
           </section>
           <section className={`worldbook-editor ${uiFlags.newSettingsUI ? 'settings-card' : ''}`}>
             <h4>主题美化</h4>
+          <label className="text-pixel-text-muted">主题预设</label>
+          <div className="theme-preset-grid">
+            {THEME_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className={`theme-preset-card ${selectedThemePresetId === preset.id ? 'active' : ''}`}
+                onClick={() => applyThemePreset(preset.id)}
+              >
+                <strong>{preset.name}</strong>
+                <small>{preset.description}</small>
+              </button>
+            ))}
+          </div>
+          <small className="text-pixel-text-muted">
+            {selectedThemePresetId
+              ? `当前预设：${THEME_PRESETS.find((item) => item.id === selectedThemePresetId)?.name || '自定义'}`
+              : '当前为自定义主题'}
+          </small>
+          <label className="text-pixel-text-muted">主题模式</label>
+          <select
+            className="pixel-select"
+            value={localTheme.themeMode}
+            onChange={(event) =>
+              setLocalTheme((prev) => {
+                const mode = event.target.value as LocalThemeSettings['themeMode']
+                return {
+                  ...prev,
+                  themeMode: mode,
+                  nightMode: mode === 'night' ? true : mode === 'light' ? false : prev.nightMode,
+                }
+              })
+            }
+          >
+            <option value="light">浅色</option>
+            <option value="night">夜间</option>
+            <option value="custom">自定义</option>
+          </select>
           <label className="text-pixel-text-muted">字体</label>
           <select
             className="pixel-select"
@@ -2094,7 +2539,84 @@ export function ChatApp({
             <option value='"PingFang SC", sans-serif'>苹方</option>
             <option value='ui-monospace, "Cascadia Code", Consolas, monospace'>等宽字体</option>
           </select>
-          <label className="text-pixel-text-muted">夜间模式</label>
+          <label className="text-pixel-text-muted">网络字体 URL（可选）</label>
+          <PixelInput
+            placeholder="https://example.com/font.woff2"
+            value={localTheme.customFontUrl}
+            onChange={(event) =>
+              setLocalTheme((prev) => ({ ...prev, customFontUrl: event.target.value }))
+            }
+          />
+          <label className="text-pixel-text-muted">全局字号（px）</label>
+          <input
+            className="pixel-input"
+            type="range"
+            min={12}
+            max={24}
+            value={localTheme.fontSize}
+            onChange={(event) =>
+              setLocalTheme((prev) => ({ ...prev, fontSize: Number(event.target.value) }))
+            }
+          />
+          <label className="text-pixel-text-muted">全局字色</label>
+          <input
+            className="pixel-input"
+            type="color"
+            value={localTheme.fontColor}
+            onChange={(event) =>
+              setLocalTheme((prev) => ({ ...prev, fontColor: event.target.value }))
+            }
+          />
+          {localTheme.themeMode === 'custom' ? (
+            <>
+              <label className="text-pixel-text-muted">渐变起始色</label>
+              <input
+                className="pixel-input"
+                type="color"
+                value={localTheme.customThemeBodyGradStart}
+                onChange={(event) =>
+                  setLocalTheme((prev) => ({ ...prev, customThemeBodyGradStart: event.target.value }))
+                }
+              />
+              <label className="text-pixel-text-muted">渐变中间色</label>
+              <input
+                className="pixel-input"
+                type="color"
+                value={localTheme.customThemeBodyGradMid}
+                onChange={(event) =>
+                  setLocalTheme((prev) => ({ ...prev, customThemeBodyGradMid: event.target.value }))
+                }
+              />
+              <label className="text-pixel-text-muted">渐变结束色</label>
+              <input
+                className="pixel-input"
+                type="color"
+                value={localTheme.customThemeBodyGradEnd}
+                onChange={(event) =>
+                  setLocalTheme((prev) => ({ ...prev, customThemeBodyGradEnd: event.target.value }))
+                }
+              />
+              <label className="text-pixel-text-muted">框体背景色</label>
+              <input
+                className="pixel-input"
+                type="color"
+                value={localTheme.customThemeFrameBg}
+                onChange={(event) =>
+                  setLocalTheme((prev) => ({ ...prev, customThemeFrameBg: event.target.value }))
+                }
+              />
+              <label className="text-pixel-text-muted">屏幕背景色</label>
+              <input
+                className="pixel-input"
+                type="color"
+                value={localTheme.customThemeScreenBg}
+                onChange={(event) =>
+                  setLocalTheme((prev) => ({ ...prev, customThemeScreenBg: event.target.value }))
+                }
+              />
+            </>
+          ) : null}
+          <label className="text-pixel-text-muted">自定义模式偏夜色调</label>
           <select
             className="pixel-select"
             value={localTheme.nightMode ? '1' : '0'}
@@ -2138,7 +2660,7 @@ export function ChatApp({
           />
           <label className="text-pixel-text-muted">聊天壁纸</label>
           <div className="chat-toolbar">
-            <PixelButton size="sm" variant="ghost" onClick={() => fileInputRef.current?.click()}>
+            <PixelButton size="sm" variant="ghost" onClick={() => globalWallpaperInputRef.current?.click()}>
               上传壁纸
             </PixelButton>
             <PixelButton
@@ -2149,12 +2671,45 @@ export function ChatApp({
               清空壁纸
             </PixelButton>
           </div>
+          <label className="text-pixel-text-muted">当前会话背景</label>
+          <div className="chat-toolbar">
+            <PixelButton
+              size="sm"
+              variant="ghost"
+              onClick={() => sessionWallpaperInputRef.current?.click()}
+              disabled={!activeSessionId}
+            >
+              上传当前会话
+            </PixelButton>
+            <PixelButton
+              size="sm"
+              variant="ghost"
+              disabled={!activeSessionId}
+              onClick={() =>
+                setLocalTheme((prev) => {
+                  if (!activeSessionId) return prev
+                  const next = { ...prev.sessionWallpaperMap }
+                  delete next[activeSessionId]
+                  return { ...prev, sessionWallpaperMap: next }
+                })
+              }
+            >
+              清空当前会话
+            </PixelButton>
+          </div>
           <input
-            ref={fileInputRef}
+            ref={globalWallpaperInputRef}
             type="file"
             accept="image/*"
             className="hidden-file-input"
-            onChange={handleWallpaperUpload}
+            onChange={(event) => handleWallpaperUpload(event, 'global')}
+          />
+          <input
+            ref={sessionWallpaperInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden-file-input"
+            onChange={(event) => handleWallpaperUpload(event, 'session')}
           />
           </section>
           <section className={`worldbook-editor ${uiFlags.newSettingsUI ? 'settings-card' : ''}`}>
@@ -2175,7 +2730,15 @@ export function ChatApp({
                   ) : null}
                 </span>
               ) : null}
-              <article className="bubble assistant bubble-with-style" style={{ background: chatSettings.friendBubbleColor }}>
+              <article
+                className="bubble assistant bubble-with-style"
+                style={{
+                  background: chatSettings.friendBubbleColor,
+                  borderRadius: `${localTheme.friendBubbleRadius}px`,
+                  borderWidth: `${localTheme.friendBubbleBorderWidth}px`,
+                  borderColor: localTheme.friendBubbleBorderColor,
+                }}
+              >
                 <p className="bubble-role">TA</p>
                 <p>这是对方消息预览</p>
                 {chatSettings.showTimestamp && chatSettings.timestampStyle === 'bubble' ? (
@@ -2201,7 +2764,15 @@ export function ChatApp({
                   ) : null}
                 </span>
               ) : null}
-              <article className="bubble user bubble-with-style" style={{ background: chatSettings.myBubbleColor }}>
+              <article
+                className="bubble user bubble-with-style"
+                style={{
+                  background: chatSettings.myBubbleColor,
+                  borderRadius: `${localTheme.myBubbleRadius}px`,
+                  borderWidth: `${localTheme.myBubbleBorderWidth}px`,
+                  borderColor: localTheme.myBubbleBorderColor,
+                }}
+              >
                 <p className="bubble-role">我</p>
                 <p>这是我的消息预览</p>
                 {chatSettings.showReadReceipt && chatSettings.readReceiptStyle === 'bubble' ? (
