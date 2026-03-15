@@ -1,0 +1,9 @@
+{
+  "name": "Role Phone MVP",
+  "short_name": "RolePhone",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#151021",
+  "theme_color": "#8b5cf6",
+  "icons": []
+}

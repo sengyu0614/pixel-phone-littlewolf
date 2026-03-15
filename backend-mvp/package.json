@@ -1,0 +1,17 @@
+{
+  "name": "pixel-backend-mvp",
+  "version": "1.0.0",
+  "description": "Node MVP backend for activation, chat, AI config and automation",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "uuid": "^11.1.0",
+    "zod": "^3.24.1"
+  }
+}
