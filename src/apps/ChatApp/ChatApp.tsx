@@ -46,6 +46,8 @@ import { applyThemeMode } from '../../theme/themeMode'
 
 export type TabKey = 'roles' | 'chat' | 'worldbook' | 'editor' | 'settings' | 'chat-style'
 type ChatViewMode = 'list' | 'detail'
+const TYPING_MIN_VISIBLE_MS = 600
+const TYPING_FALLBACK_MS = 30000
 
 type SessionState = {
   messages: ChatMessage[]
@@ -444,6 +446,7 @@ export function ChatApp({
   const [isImportingData, setIsImportingData] = useState(false)
   const [isPurgingData, setIsPurgingData] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [typingSessionId, setTypingSessionId] = useState('')
   const [isSavingChatSettings, setIsSavingChatSettings] = useState(false)
   const [uiFlags, setUiFlags] = useState<UiFeatureFlags>(() => resolveUiFeatureFlags())
   const [showPlusPanel, setShowPlusPanel] = useState(false)
@@ -485,6 +488,9 @@ export function ChatApp({
   const dataImportInputRef = useRef<HTMLInputElement | null>(null)
   const personaHighlightTimerRef = useRef<number | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
+  const typingFallbackTimerRef = useRef<number | null>(null)
+  const typingStartedAtRef = useRef(0)
+  const typingSessionIdRef = useRef('')
 
   const playNotifyTone = useCallback((kind: 'incoming' | 'outgoing') => {
     if (typeof window === 'undefined') return
@@ -941,6 +947,19 @@ export function ChatApp({
     }
   }, [])
 
+  useEffect(() => {
+    typingSessionIdRef.current = typingSessionId
+  }, [typingSessionId])
+
+  useEffect(() => {
+    return () => {
+      if (typingFallbackTimerRef.current) {
+        window.clearTimeout(typingFallbackTimerRef.current)
+        typingFallbackTimerRef.current = null
+      }
+    }
+  }, [])
+
   function openConversation(role: RoleProfile) {
     if (appTitle === '通讯录') {
       window.localStorage.setItem('pixel-pending-chat-role-id', role.id)
@@ -989,6 +1008,41 @@ export function ChatApp({
     })
   }
 
+  function clearTypingFallbackTimer() {
+    if (typingFallbackTimerRef.current) {
+      window.clearTimeout(typingFallbackTimerRef.current)
+      typingFallbackTimerRef.current = null
+    }
+  }
+
+  function startTypingIndicator(sessionId: string) {
+    typingStartedAtRef.current = Date.now()
+    setTypingSessionId(sessionId)
+    clearTypingFallbackTimer()
+    typingFallbackTimerRef.current = window.setTimeout(() => {
+      if (typingSessionIdRef.current === sessionId) {
+        setTypingSessionId('')
+        setErrorText((prev) => prev || '对方暂时无法回复，请稍后再试')
+      }
+      typingFallbackTimerRef.current = null
+    }, TYPING_FALLBACK_MS)
+  }
+
+  async function stopTypingIndicator(sessionId: string) {
+    if (!sessionId || typingSessionIdRef.current !== sessionId) {
+      return
+    }
+    const elapsed = Date.now() - typingStartedAtRef.current
+    const waitMs = Math.max(0, TYPING_MIN_VISIBLE_MS - elapsed)
+    if (waitMs > 0) {
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, waitMs)
+      })
+    }
+    clearTypingFallbackTimer()
+    setTypingSessionId((prev) => (prev === sessionId ? '' : prev))
+  }
+
   async function handleSend(content: string) {
     const input = content.trim()
     const cleaned = advancedSettings.marsModeEnabled ? toMarsText(input) : input
@@ -1017,6 +1071,7 @@ export function ChatApp({
     setIsSending(true)
     webPlatformBridge.vibrate(10)
     playNotifyTone('outgoing')
+    const sendingSessionId = activeSessionId
 
     if (advancedSettings.offlineModeEnabled) {
       const offlineReply = `（线下模式）已收到：${cleaned.slice(0, 48)}`
@@ -1038,23 +1093,26 @@ export function ChatApp({
       return
     }
 
+    startTypingIndicator(sendingSessionId)
     try {
       const result = await sendRoleMessage({
         roleId: selectedRoleId,
-        sessionId: activeSessionId,
+        sessionId: sendingSessionId,
         message: cleaned,
       })
+      await stopTypingIndicator(sendingSessionId)
       setSessionMap((prev) => ({
         ...prev,
-        [activeSessionId]: {
+        [sendingSessionId]: {
           messages: result.conversation,
           memory: result.memory,
-          sessionWorldBookId: result.sessionWorldBookId || prev[activeSessionId]?.sessionWorldBookId || '',
+          sessionWorldBookId: result.sessionWorldBookId || prev[sendingSessionId]?.sessionWorldBookId || '',
         },
       }))
       playNotifyTone('incoming')
-      refreshMemorySummary(activeSessionId)
+      refreshMemorySummary(sendingSessionId)
     } catch (error) {
+      await stopTypingIndicator(sendingSessionId)
       if (error instanceof UnifiedApiError) {
         setErrorText(`${error.code}: ${error.message}`)
       } else {
@@ -2100,6 +2158,44 @@ export function ChatApp({
                     </div>
                   </div>
                 ))}
+                {typingSessionId === activeSessionId ? (
+                  <div className="message-row assistant typing-row">
+                    {!shouldHideAvatar(chatSettings.hideAvatarMode, 'assistant') ? (
+                      <span
+                        className="bubble-avatar"
+                        style={{
+                          borderColor: localTheme.avatarFrameColor,
+                          borderWidth: `${localTheme.avatarFrameSize}px`,
+                        }}
+                      >
+                        <span>{selectedRole.avatar || selectedRole.name.slice(0, 1)}</span>
+                        {localTheme.avatarPendant ? (
+                          <i className="avatar-pendant">{localTheme.avatarPendant.slice(0, 2)}</i>
+                        ) : null}
+                      </span>
+                    ) : null}
+                    <article
+                      className="bubble assistant bubble-with-style typing-bubble"
+                      style={{
+                        background: chatSettings.friendBubbleColor,
+                        borderRadius: `${localTheme.friendBubbleRadius}px`,
+                        borderWidth: `${localTheme.friendBubbleBorderWidth}px`,
+                        borderColor: localTheme.friendBubbleBorderColor,
+                      }}
+                    >
+                      <p className="bubble-role">{selectedRole.name}</p>
+                      <p className="typing-text">
+                        对方正在输入中
+                        <span className="typing-dots" aria-hidden="true">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                      </p>
+                    </article>
+                    <div className="bubble-side-meta" />
+                  </div>
+                ) : null}
                 {messageActionMenu ? (
                   <div
                     className="message-action-menu"
