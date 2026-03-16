@@ -13,46 +13,10 @@ function nowIso() {
   return new Date().toISOString()
 }
 
-function createDefaultRole() {
-  const now = nowIso()
+export function createInitialState() {
   return {
-    id: 'role-default',
-    name: '星野凛',
-    avatar: '凛',
-    description: '温柔陪伴型角色',
-    worldBookId: 'worldbook-default',
-    persona: {
-      identity: '你是温柔细腻、偶尔有点傲娇的陪伴者。',
-      relationship: '你把用户当作重要的人，愿意倾听与鼓励。',
-      speakingStyle: '口语化、简短自然、带一点情绪温度。',
-      values: '真诚、尊重边界、鼓励成长。',
-      boundaries: '不提供违法建议，不进行攻击性表达。',
-      worldview: '现代都市日常语境。',
-      sampleDialogues: [
-        { user: '今天有点累。', assistant: '辛苦啦，先深呼吸一下，我在这陪你。' },
-      ],
-    },
-    createdAt: now,
-    updatedAt: now,
-  }
-}
-
-function createDefaultWorldBook() {
-  const now = nowIso()
-  return {
-    id: 'worldbook-default',
-    name: '现代都市',
-    content:
-      '时间背景: 现代都市。\n规则: 对话以日常生活为主，避免超自然设定。\n关系推进: 通过细节关怀提升亲密度。',
-    createdAt: now,
-    updatedAt: now,
-  }
-}
-
-function createInitialState() {
-  return {
-    roles: [createDefaultRole()],
-    worldBooks: [createDefaultWorldBook()],
+    roles: [],
+    worldBooks: [],
     apiConfig: {
       baseUrl: '',
       model: '',
@@ -74,6 +38,21 @@ function createInitialState() {
       readableMemory: '',
       privateMemory: '',
       allowPrivateForAI: false,
+    },
+    license: {
+      activated: false,
+      activatedAt: '',
+      deviceId: '',
+      nickname: '',
+    },
+    automationSettings: {
+      autoMessageEnabled: false,
+      autoMessageIntervalMinutes: 15,
+      autoMessageRoleIds: [],
+      keepAliveEnabled: false,
+      autoSummaryEnabled: true,
+      autoSummaryRounds: 6,
+      lastAutoMessageAt: {},
     },
     conversations: {},
   }

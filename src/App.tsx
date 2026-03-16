@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { PhoneShell } from './simulator/PhoneShell'
+import { ActivationGate } from './components/ActivationGate'
 import { initializeButtonBipSetting, playButtonBip } from './platform/soundEffects'
 
 function App() {
@@ -23,9 +24,11 @@ function App() {
   }, [])
 
   return (
-    <main className="simulator-page">
-      <PhoneShell />
-    </main>
+    <ActivationGate>
+      <main className="simulator-page">
+        <PhoneShell />
+      </main>
+    </ActivationGate>
   )
 }
 

@@ -3,6 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import {
   appendConversationMessage,
+  createInitialState,
   loadStore,
   saveStore,
   upsertRole,
@@ -18,6 +19,7 @@ const port = Number(process.env.PORT || 8787)
 const appSecret = process.env.APP_SECRET || ''
 const defaultApiBaseUrl = String(process.env.DEFAULT_API_BASE_URL || '').trim()
 const defaultApiModel = String(process.env.DEFAULT_API_MODEL || '').trim()
+const defaultActivationCode = String(process.env.ACTIVATION_CODE || 'LITTLEWOLF2026').trim().toUpperCase()
 
 app.use(cors())
 app.use(express.json({ limit: '1mb' }))
@@ -83,6 +85,86 @@ function sanitizeUserPersona(input) {
   }
 }
 
+function sanitizeAutomationSettings(input) {
+  const value = input || {}
+  const interval = Math.max(1, Number(value.autoMessageIntervalMinutes) || 15)
+  const rounds = Math.max(2, Number(value.autoSummaryRounds) || 6)
+  const roleIds = Array.isArray(value.autoMessageRoleIds)
+    ? value.autoMessageRoleIds.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+  const lastAutoMessageAt =
+    value.lastAutoMessageAt && typeof value.lastAutoMessageAt === 'object' && !Array.isArray(value.lastAutoMessageAt)
+      ? Object.fromEntries(
+          Object.entries(value.lastAutoMessageAt).map(([roleId, iso]) => [String(roleId), String(iso || '')]),
+        )
+      : {}
+  return {
+    autoMessageEnabled: Boolean(value.autoMessageEnabled),
+    autoMessageIntervalMinutes: interval,
+    autoMessageRoleIds: Array.from(new Set(roleIds)),
+    keepAliveEnabled: Boolean(value.keepAliveEnabled),
+    autoSummaryEnabled: value.autoSummaryEnabled === undefined ? true : Boolean(value.autoSummaryEnabled),
+    autoSummaryRounds: rounds,
+    lastAutoMessageAt,
+  }
+}
+
+function buildConversationSummary(messages, rounds) {
+  const latest = messages.slice(-Math.max(2, Math.min(8, rounds)))
+  return latest
+    .map((item) => `${item.role === 'user' ? '我' : 'TA'}：${String(item.content || '').trim()}`)
+    .join(' | ')
+    .slice(0, 240)
+}
+
+function runAutomationTick() {
+  try {
+    const store = loadStore()
+    const settings = sanitizeAutomationSettings(store.automationSettings)
+    if (!settings.autoMessageEnabled || settings.autoMessageRoleIds.length === 0) {
+      return
+    }
+    const now = Date.now()
+    const intervalMs = settings.autoMessageIntervalMinutes * 60 * 1000
+    let changed = false
+    for (const roleId of settings.autoMessageRoleIds) {
+      const role = store.roles.find((item) => item.id === roleId)
+      if (!role) continue
+      const lastIso = settings.lastAutoMessageAt[roleId] || ''
+      const lastMs = lastIso ? new Date(lastIso).getTime() : 0
+      if (lastMs && Number.isFinite(lastMs) && now - lastMs < intervalMs) {
+        continue
+      }
+      const sessionId = `session-${roleId}`
+      const lines = ['在吗？', '今天过得怎么样', '我刚刚想到你了', '记得按时休息哦']
+      const content = lines[Math.floor(Math.random() * lines.length)] || '来和你打个招呼'
+      appendConversationMessage(store, sessionId, roleId, {
+        role: 'assistant',
+        content,
+        timestamp: new Date().toISOString(),
+      })
+      settings.lastAutoMessageAt[roleId] = new Date(now).toISOString()
+      const session = store.conversations[sessionId]
+      if (settings.autoSummaryEnabled && session?.messages?.length) {
+        const rounds = Math.max(2, settings.autoSummaryRounds)
+        if (session.messages.length % rounds === 0) {
+          session.memory = session.memory || { summary: '', facts: [] }
+          session.memory.summary = buildConversationSummary(session.messages, rounds)
+        }
+      }
+      changed = true
+    }
+    if (!changed) return
+    store.automationSettings = {
+      ...settings,
+      lastAutoMessageAt: settings.lastAutoMessageAt,
+    }
+    saveStore(store)
+  } catch (error) {
+    logError('automation:tick', error)
+  }
+}
+
 function resolveApiConfig(store) {
   return {
     baseUrl: String(store.apiConfig?.baseUrl || '').trim() || defaultApiBaseUrl,
@@ -93,6 +175,51 @@ function resolveApiConfig(store) {
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() })
+})
+
+app.get('/api/license/status', (_req, res) => {
+  const store = loadStore()
+  const license = store.license || {}
+  res.json({
+    activated: Boolean(license.activated),
+    activatedAt: String(license.activatedAt || ''),
+    nickname: String(license.nickname || ''),
+  })
+})
+
+app.post('/api/license/activate', (req, res) => {
+  try {
+    const store = loadStore()
+    const code = String(req.body?.code || '')
+      .trim()
+      .toUpperCase()
+    const deviceId = String(req.body?.deviceId || '').trim()
+    const nickname = String(req.body?.nickname || '').trim()
+
+    if (!code) {
+      return res.status(400).json({ code: 'invalid_request', message: '激活码不能为空' })
+    }
+    if (code !== defaultActivationCode) {
+      return res.status(400).json({ code: 'invalid_code', message: '激活码无效' })
+    }
+
+    store.license = {
+      activated: true,
+      activatedAt: store.license?.activatedAt || new Date().toISOString(),
+      deviceId,
+      nickname,
+    }
+    saveStore(store)
+    return res.json({
+      ok: true,
+      activated: true,
+      activatedAt: store.license.activatedAt,
+      nickname: store.license.nickname,
+    })
+  } catch (error) {
+    logError('license:activate', error)
+    return res.status(500).json({ code: 'activation_failed', message: '激活失败，请稍后再试' })
+  }
 })
 
 app.get('/api/roles', (_req, res) => {
@@ -196,6 +323,24 @@ app.put('/api/chat-settings', (req, res) => {
 app.get('/api/user-persona', (_req, res) => {
   const store = loadStore()
   res.json(store.userPersona || { readableMemory: '', privateMemory: '', allowPrivateForAI: false })
+})
+
+app.get('/api/automation/settings', (_req, res) => {
+  const store = loadStore()
+  res.json(sanitizeAutomationSettings(store.automationSettings))
+})
+
+app.put('/api/automation/settings', (req, res) => {
+  try {
+    const store = loadStore()
+    const nextSettings = sanitizeAutomationSettings(req.body)
+    store.automationSettings = nextSettings
+    saveStore(store)
+    res.json({ ok: true, automationSettings: nextSettings })
+  } catch (error) {
+    logError('automation-settings:update', error)
+    res.status(400).json({ message: error instanceof Error ? error.message : '保存自动化设置失败' })
+  }
 })
 
 app.put('/api/user-persona', (req, res) => {
@@ -363,6 +508,86 @@ app.get('/api/export', (_req, res) => {
   res.json(sanitized)
 })
 
+app.get('/api/sessions', (_req, res) => {
+  const store = loadStore()
+  res.json({ conversations: store.conversations || {} })
+})
+
+app.post('/api/import', (req, res) => {
+  try {
+    const payload = req.body?.data ?? req.body
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return res.status(400).json({ code: 'invalid_request', message: '导入数据格式无效' })
+    }
+    const current = loadStore()
+    const imported = payload
+    const base = createInitialState()
+    const nextStore = {
+      ...base,
+      ...current,
+      ...imported,
+      apiConfig: {
+        ...base.apiConfig,
+        ...current.apiConfig,
+        ...(imported.apiConfig && typeof imported.apiConfig === 'object' ? imported.apiConfig : {}),
+      },
+      chatUiSettings: {
+        ...base.chatUiSettings,
+        ...current.chatUiSettings,
+        ...(imported.chatUiSettings && typeof imported.chatUiSettings === 'object'
+          ? imported.chatUiSettings
+          : {}),
+      },
+      userPersona: {
+        ...base.userPersona,
+        ...current.userPersona,
+        ...(imported.userPersona && typeof imported.userPersona === 'object' ? imported.userPersona : {}),
+      },
+      license: {
+        ...base.license,
+        ...current.license,
+        ...(imported.license && typeof imported.license === 'object' ? imported.license : {}),
+      },
+      roles: Array.isArray(imported.roles) ? imported.roles : current.roles,
+      worldBooks: Array.isArray(imported.worldBooks) ? imported.worldBooks : current.worldBooks,
+      conversations:
+        imported.conversations && typeof imported.conversations === 'object'
+          ? imported.conversations
+          : current.conversations,
+    }
+    saveStore(nextStore)
+    return res.json({
+      ok: true,
+      roles: nextStore.roles.length,
+      worldBooks: nextStore.worldBooks.length,
+      conversations: Object.keys(nextStore.conversations || {}).length,
+    })
+  } catch (error) {
+    logError('data:import', error)
+    return res.status(400).json({ code: 'import_failed', message: '导入失败，请检查 JSON 文件' })
+  }
+})
+
+app.delete('/api/purge', (req, res) => {
+  try {
+    const confirmText = String(req.body?.confirmText || '').trim()
+    if (confirmText !== 'PURGE_ALL') {
+      return res.status(400).json({ code: 'invalid_request', message: '请确认清空指令' })
+    }
+    const current = loadStore()
+    const resetStore = createInitialState()
+    resetStore.license = {
+      ...resetStore.license,
+      ...(current.license || {}),
+    }
+    saveStore(resetStore)
+    return res.json({ ok: true })
+  } catch (error) {
+    logError('data:purge', error)
+    return res.status(500).json({ code: 'purge_failed', message: '清空失败，请稍后重试' })
+  }
+})
+
 const isServerlessRuntime =
   Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
   Boolean(process.env.LAMBDA_TASK_ROOT) ||
@@ -373,6 +598,7 @@ const isDirectRun =
   /[\\/]server\.(mjs|cjs|js)$/.test(String(process.argv[1] || ''))
 
 if (isDirectRun) {
+  setInterval(runAutomationTick, 15000)
   app.listen(port, () => {
     console.log(`roleplay api running on http://localhost:${port}`)
   })

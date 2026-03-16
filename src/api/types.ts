@@ -89,6 +89,30 @@ export type ChatResponse = {
   conversation: ChatMessage[]
 }
 
+export type LicenseStatus = {
+  activated: boolean
+  activatedAt: string
+  nickname: string
+}
+
+export type AutomationSettings = {
+  autoMessageEnabled: boolean
+  autoMessageIntervalMinutes: number
+  autoMessageRoleIds: string[]
+  keepAliveEnabled: boolean
+  autoSummaryEnabled: boolean
+  autoSummaryRounds: number
+  lastAutoMessageAt?: Record<string, string>
+}
+
+export type ConversationSnapshot = {
+  sessionId: string
+  roleId: string
+  worldBookId: string
+  messages: ChatMessage[]
+  memory: MemorySnapshot
+}
+
 export class UnifiedApiError extends Error {
   code: string
   status: number

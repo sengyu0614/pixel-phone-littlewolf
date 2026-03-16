@@ -5,6 +5,7 @@ import {
   RoleSettingsApp,
   RoleWorldBookApp,
 } from '../apps/RolePhoneApps'
+import { RoleForumApp, RoleMomentsApp } from '../apps/LittlewolfExtraApps'
 import type { AppDefinition } from './types'
 
 export const appRegistry: AppDefinition[] = [
@@ -42,6 +43,20 @@ export const appRegistry: AppDefinition[] = [
     icon: '配',
     description: '配置 API、世界书与聊天样式',
     component: RoleSettingsApp,
+  },
+  {
+    id: 'role-moments',
+    name: '朋友圈',
+    icon: '圈',
+    description: '查看角色动态与自动化入口',
+    component: RoleMomentsApp,
+  },
+  {
+    id: 'role-forum',
+    name: '论坛',
+    icon: '坛',
+    description: '同人论坛与帖子互动',
+    component: RoleForumApp,
   },
 ]
 

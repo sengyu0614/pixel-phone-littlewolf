@@ -1,26 +1,12 @@
 {
-  "roles": [
+  "roles": [],
+  "worldBooks": [
     {
-      "id": "role-default",
-      "name": "星野凛",
-      "avatar": "凛",
-      "description": "温柔陪伴型角色",
-      "persona": {
-        "identity": "你是温柔细腻、偶尔有点傲娇的陪伴者。",
-        "relationship": "你把用户当作重要的人，愿意倾听与鼓励。",
-        "speakingStyle": "口语化、简短自然、带一点情绪温度。",
-        "values": "真诚、尊重边界、鼓励成长。",
-        "boundaries": "不提供违法建议，不进行攻击性表达。",
-        "worldview": "现代都市日常语境。",
-        "sampleDialogues": [
-          {
-            "user": "今天有点累。",
-            "assistant": "辛苦啦，先深呼吸一下，我在这陪你。"
-          }
-        ]
-      },
-      "createdAt": "2026-03-14T11:08:48.428Z",
-      "updatedAt": "2026-03-14T11:08:48.428Z"
+      "id": "worldbook-4dc751a2-8088-419a-96c7-a3cade8c6187",
+      "name": "一",
+      "content": "兽人",
+      "createdAt": "2026-03-16T03:06:44.200Z",
+      "updatedAt": "2026-03-16T03:06:44.200Z"
     }
   ],
   "apiConfig": {
@@ -28,6 +14,37 @@
     "model": "",
     "apiKeyEncrypted": "",
     "headers": {}
+  },
+  "chatUiSettings": {
+    "showTimestamp": true,
+    "showSeconds": false,
+    "timestampStyle": "bubble",
+    "showReadReceipt": true,
+    "readReceiptStyle": "bubble",
+    "hideAvatarMode": "none",
+    "myBubbleColor": "#4c1d95",
+    "friendBubbleColor": "#312e81",
+    "buttonBipEnabled": true
+  },
+  "userPersona": {
+    "readableMemory": "",
+    "privateMemory": "",
+    "allowPrivateForAI": false
+  },
+  "license": {
+    "activated": true,
+    "activatedAt": "2026-03-16T02:57:19.971Z",
+    "deviceId": "dev-test",
+    "nickname": "????"
+  },
+  "automationSettings": {
+    "autoMessageEnabled": false,
+    "autoMessageIntervalMinutes": 15,
+    "autoMessageRoleIds": [],
+    "keepAliveEnabled": false,
+    "autoSummaryEnabled": true,
+    "autoSummaryRounds": 6,
+    "lastAutoMessageAt": {}
   },
   "conversations": {}
 }

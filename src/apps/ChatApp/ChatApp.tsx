@@ -1,16 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import {
+  importData,
+  fetchAutomationSettings,
+  fetchSessionsSnapshot,
   bindRoleWorldBook,
   bindSessionWorldBook,
   createWorldBook,
   createRole,
   exportData,
+  purgeData,
   fetchChatSettings,
   fetchConfig,
   fetchUserPersona,
   fetchRoles,
   fetchWorldBooks,
+  saveAutomationSettings,
   saveChatSettings,
   saveConfig,
   saveUserPersona,
@@ -26,12 +31,14 @@ import type {
   ReadReceiptStyle,
   RoleProfile,
   TimestampStyle,
+  AutomationSettings,
   UserPersonaMemory,
   WorldBook,
 } from '../../api/types'
 import { UnifiedApiError } from '../../api/types'
 import { webPlatformBridge } from '../../platform/platformBridge'
 import { setButtonBipEnabled } from '../../platform/soundEffects'
+import { useSimulatorStore } from '../../simulator/store/simulatorStore'
 import type { AppRuntimeProps } from '../../simulator/types'
 import { resolveUiFeatureFlags, saveUiFeatureFlags } from '../../theme/featureFlags'
 import type { UiFeatureFlagKey, UiFeatureFlags } from '../../theme/featureFlags'
@@ -108,11 +115,6 @@ type ThemePreset = {
   }
 }
 
-type CallOverlayState = {
-  mode: 'voice' | 'video'
-  status: 'ringing' | 'connected'
-}
-
 type PersonaTemplate = {
   id: string
   name: string
@@ -150,6 +152,19 @@ type ApiUiSettings = {
   timeAware: boolean
   presets: ApiPreset[]
   fetchedModels: string[]
+}
+
+type AdvancedRuntimeSettings = {
+  autoMessageEnabled: boolean
+  autoMessageIntervalMinutes: number
+  autoMessageRoleIds: string[]
+  keepAliveEnabled: boolean
+  autoSummaryEnabled: boolean
+  autoSummaryRounds: number
+  offlineModeEnabled: boolean
+  marsModeEnabled: boolean
+  incomingSoundEnabled: boolean
+  outgoingSoundEnabled: boolean
 }
 
 function getSessionId(roleId: string) {
@@ -329,6 +344,55 @@ function defaultApiUiSettings(): ApiUiSettings {
   }
 }
 
+function defaultAdvancedRuntimeSettings(): AdvancedRuntimeSettings {
+  return {
+    autoMessageEnabled: false,
+    autoMessageIntervalMinutes: 15,
+    autoMessageRoleIds: [],
+    keepAliveEnabled: false,
+    autoSummaryEnabled: true,
+    autoSummaryRounds: 6,
+    offlineModeEnabled: false,
+    marsModeEnabled: false,
+    incomingSoundEnabled: true,
+    outgoingSoundEnabled: true,
+  }
+}
+
+function toMarsText(input: string) {
+  const raw = input.trim()
+  if (!raw) return raw
+  return raw
+    .replace(/吗/g, '嘛')
+    .replace(/呢/g, '捏')
+    .replace(/了/g, '惹')
+    .replace(/你/g, '泥')
+    .replace(/我/g, '窝')
+}
+
+function mergeAdvancedWithRemote(prev: AdvancedRuntimeSettings, remote: AutomationSettings): AdvancedRuntimeSettings {
+  return {
+    ...prev,
+    autoMessageEnabled: Boolean(remote.autoMessageEnabled),
+    autoMessageIntervalMinutes: Math.max(1, Number(remote.autoMessageIntervalMinutes) || prev.autoMessageIntervalMinutes),
+    autoMessageRoleIds: Array.isArray(remote.autoMessageRoleIds) ? remote.autoMessageRoleIds : prev.autoMessageRoleIds,
+    keepAliveEnabled: Boolean(remote.keepAliveEnabled),
+    autoSummaryEnabled: Boolean(remote.autoSummaryEnabled),
+    autoSummaryRounds: Math.max(2, Number(remote.autoSummaryRounds) || prev.autoSummaryRounds),
+  }
+}
+
+function toAutomationPayload(source: AdvancedRuntimeSettings): AutomationSettings {
+  return {
+    autoMessageEnabled: source.autoMessageEnabled,
+    autoMessageIntervalMinutes: Math.max(1, Number(source.autoMessageIntervalMinutes) || 15),
+    autoMessageRoleIds: Array.from(new Set(source.autoMessageRoleIds)),
+    keepAliveEnabled: source.keepAliveEnabled,
+    autoSummaryEnabled: source.autoSummaryEnabled,
+    autoSummaryRounds: Math.max(2, Number(source.autoSummaryRounds) || 6),
+  }
+}
+
 type ChatAppProps = AppRuntimeProps & {
   defaultTab?: TabKey
   hideTabBar?: boolean
@@ -368,11 +432,17 @@ export function ChatApp({
     headers: {},
   })
   const [apiUi, setApiUi] = useState<ApiUiSettings>(defaultApiUiSettings())
+  const [advancedSettings, setAdvancedSettings] = useState<AdvancedRuntimeSettings>(
+    defaultAdvancedRuntimeSettings(),
+  )
   const [headersText, setHeadersText] = useState('{}')
   const [maskedKey, setMaskedKey] = useState('')
   const [isBooting, setIsBooting] = useState(true)
   const [text, setText] = useState('')
   const [isSavingConfig, setIsSavingConfig] = useState(false)
+  const [isSavingAutomation, setIsSavingAutomation] = useState(false)
+  const [isImportingData, setIsImportingData] = useState(false)
+  const [isPurgingData, setIsPurgingData] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [isSavingChatSettings, setIsSavingChatSettings] = useState(false)
   const [uiFlags, setUiFlags] = useState<UiFeatureFlags>(() => resolveUiFeatureFlags())
@@ -383,7 +453,6 @@ export function ChatApp({
   const [blockedRoleIds, setBlockedRoleIds] = useState<Record<string, boolean>>({})
   const [memorySyncRoleIds, setMemorySyncRoleIds] = useState<Record<string, boolean>>({})
   const [messageActionMenu, setMessageActionMenu] = useState<MessageActionMenuState | null>(null)
-  const [callOverlay, setCallOverlay] = useState<CallOverlayState | null>(null)
   const [localTheme, setLocalTheme] = useState<LocalThemeSettings>(defaultLocalThemeSettings())
   const [bubblePresets, setBubblePresets] = useState<BubblePreset[]>([])
   const [showRoleQuickMenu, setShowRoleQuickMenu] = useState(false)
@@ -408,11 +477,44 @@ export function ChatApp({
   const [isSavingUserPersona, setIsSavingUserPersona] = useState(false)
   const [errorText, setErrorText] = useState('')
   const [successText, setSuccessText] = useState('')
+  const openSimulatorApp = useSimulatorStore((state) => state.openApp)
   const longPressTimerRef = useRef<number | null>(null)
   const globalWallpaperInputRef = useRef<HTMLInputElement | null>(null)
   const sessionWallpaperInputRef = useRef<HTMLInputElement | null>(null)
   const personaImportInputRef = useRef<HTMLInputElement | null>(null)
+  const dataImportInputRef = useRef<HTMLInputElement | null>(null)
   const personaHighlightTimerRef = useRef<number | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+
+  const playNotifyTone = useCallback((kind: 'incoming' | 'outgoing') => {
+    if (typeof window === 'undefined') return
+    if (kind === 'incoming' && !advancedSettings.incomingSoundEnabled) return
+    if (kind === 'outgoing' && !advancedSettings.outgoingSoundEnabled) return
+    try {
+      const Ctor =
+        window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (!Ctor) return
+      if (!audioContextRef.current) {
+        audioContextRef.current = new Ctor()
+      }
+      const ctx = audioContextRef.current
+      const oscillator = ctx.createOscillator()
+      const gain = ctx.createGain()
+      oscillator.type = 'sine'
+      oscillator.frequency.value = kind === 'outgoing' ? 740 : 520
+      gain.gain.value = 0.0001
+      oscillator.connect(gain)
+      gain.connect(ctx.destination)
+      const now = ctx.currentTime
+      gain.gain.setValueAtTime(0.0001, now)
+      gain.gain.exponentialRampToValueAtTime(0.02, now + 0.01)
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12)
+      oscillator.start(now)
+      oscillator.stop(now + 0.13)
+    } catch {
+      // 静默降级，不影响主流程
+    }
+  }, [advancedSettings.incomingSoundEnabled, advancedSettings.outgoingSoundEnabled])
 
   function updateUiFlag(key: UiFeatureFlagKey, enabled: boolean) {
     setUiFlags((prev) => {
@@ -489,22 +591,36 @@ export function ChatApp({
   const isSelectedRoleBlocked = selectedRoleId ? Boolean(blockedRoleIds[selectedRoleId]) : false
   const isMemorySyncEnabled = selectedRoleId ? Boolean(memorySyncRoleIds[selectedRoleId]) : false
 
-  async function bootstrap() {
+  const bootstrap = useCallback(async () => {
     setIsBooting(true)
     setErrorText('')
     try {
-      const [roleList, remoteConfig, worldBookList, remoteChatSettings, remoteUserPersona] =
+      const [roleList, remoteConfig, worldBookList, remoteChatSettings, remoteUserPersona, remoteAutomation, remoteSessions] =
         await Promise.all([
         fetchRoles(),
         fetchConfig(),
         fetchWorldBooks(),
         fetchChatSettings(),
           fetchUserPersona(),
+          fetchAutomationSettings(),
+          fetchSessionsSnapshot(),
         ])
       setRoles(roleList)
       setWorldBooks(worldBookList)
       const firstRoleId = roleList[0]?.id ?? ''
-      setSelectedRoleId(firstRoleId)
+      const pendingRoleId = window.localStorage.getItem('pixel-pending-chat-role-id') || ''
+      const preferredRoleId = roleList.find((item) => item.id === pendingRoleId)?.id || firstRoleId
+      setSelectedRoleId(preferredRoleId)
+      const shouldJumpToMessageDetail =
+        appTitle === '消息' && window.localStorage.getItem('pixel-jump-to-messages') === '1'
+      if (shouldJumpToMessageDetail) {
+        setTab('chat')
+        setChatViewMode('detail')
+        window.localStorage.removeItem('pixel-jump-to-messages')
+      }
+      if (appTitle === '消息') {
+        window.localStorage.removeItem('pixel-pending-chat-role-id')
+      }
       setConfig((prev) => ({
         ...prev,
         baseUrl: remoteConfig.baseUrl || '',
@@ -522,16 +638,28 @@ export function ChatApp({
       setChatSettings(mergedChatSettings)
       setButtonBipEnabled(mergedChatSettings.buttonBipEnabled)
       setUserPersona({ ...defaultUserPersona(), ...remoteUserPersona })
+      setAdvancedSettings((prev) => mergeAdvancedWithRemote(prev, remoteAutomation))
+      setSessionMap((prev) => {
+        const next = { ...prev }
+        Object.entries(remoteSessions || {}).forEach(([sessionId, session]) => {
+          next[sessionId] = {
+            messages: Array.isArray(session?.messages) ? session.messages : [],
+            memory: session?.memory || { summary: '', facts: [] },
+            sessionWorldBookId: session?.worldBookId || '',
+          }
+        })
+        return next
+      })
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : '初始化失败')
     } finally {
       setIsBooting(false)
     }
-  }
+  }, [appTitle])
 
   useEffect(() => {
     void bootstrap()
-  }, [])
+  }, [bootstrap])
 
   useEffect(() => {
     setTab(defaultTab)
@@ -539,7 +667,6 @@ export function ChatApp({
 
   useEffect(() => {
     setMessageActionMenu(null)
-    setCallOverlay(null)
     if (longPressTimerRef.current) {
       window.clearTimeout(longPressTimerRef.current)
       longPressTimerRef.current = null
@@ -686,6 +813,83 @@ export function ChatApp({
 
   useEffect(() => {
     try {
+      const raw = window.localStorage.getItem('pixel-advanced-runtime-settings')
+      if (!raw) return
+      const parsed = JSON.parse(raw) as Partial<AdvancedRuntimeSettings>
+      setAdvancedSettings((prev) => ({
+        ...prev,
+        ...parsed,
+        autoMessageIntervalMinutes: Math.max(1, Number(parsed.autoMessageIntervalMinutes ?? prev.autoMessageIntervalMinutes)),
+        autoSummaryRounds: Math.max(2, Number(parsed.autoSummaryRounds ?? prev.autoSummaryRounds)),
+        autoMessageRoleIds: Array.isArray(parsed.autoMessageRoleIds) ? parsed.autoMessageRoleIds : prev.autoMessageRoleIds,
+      }))
+    } catch {
+      // 忽略损坏的高级设置缓存
+    }
+  }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem('pixel-advanced-runtime-settings', JSON.stringify(advancedSettings))
+  }, [advancedSettings])
+
+  useEffect(() => {
+    let disposed = false
+    async function syncSessions() {
+      try {
+        const remoteSessions = await fetchSessionsSnapshot()
+        if (disposed) return
+        let hasIncoming = false
+        const unreadDelta: Record<string, number> = {}
+        setSessionMap((prev) => {
+          const next = { ...prev }
+          Object.entries(remoteSessions || {}).forEach(([sessionId, remote]) => {
+            const roleId = String(remote?.roleId || '').trim() || sessionId.replace(/^session-/, '')
+            const remoteMessages = Array.isArray(remote?.messages) ? remote.messages : []
+            const localMessages = prev[sessionId]?.messages ?? []
+            if (remoteMessages.length > localMessages.length) {
+              const newMessages = remoteMessages.slice(localMessages.length)
+              const incomingCount = newMessages.filter((item) => item?.role === 'assistant').length
+              if (incomingCount > 0 && roleId && roleId !== selectedRoleId) {
+                unreadDelta[roleId] = (unreadDelta[roleId] ?? 0) + incomingCount
+                hasIncoming = true
+              }
+            }
+            next[sessionId] = {
+              messages: remoteMessages,
+              memory: remote?.memory || { summary: '', facts: [] },
+              sessionWorldBookId: remote?.worldBookId || '',
+            }
+          })
+          return next
+        })
+        if (Object.keys(unreadDelta).length > 0) {
+          setUnreadMap((prev) => {
+            const next = { ...prev }
+            Object.entries(unreadDelta).forEach(([roleId, count]) => {
+              next[roleId] = (next[roleId] ?? 0) + count
+            })
+            return next
+          })
+        }
+        if (hasIncoming) {
+          playNotifyTone('incoming')
+        }
+      } catch {
+        // 同步失败时静默重试
+      }
+    }
+    void syncSessions()
+    const timer = window.setInterval(() => {
+      void syncSessions()
+    }, 10000)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [selectedRoleId, playNotifyTone])
+
+  useEffect(() => {
+    try {
       const raw = window.localStorage.getItem('pixel-user-persona-templates')
       if (!raw) return
       const parsed = JSON.parse(raw) as PersonaTemplate[]
@@ -738,6 +942,12 @@ export function ChatApp({
   }, [])
 
   function openConversation(role: RoleProfile) {
+    if (appTitle === '通讯录') {
+      window.localStorage.setItem('pixel-pending-chat-role-id', role.id)
+      window.localStorage.setItem('pixel-jump-to-messages', '1')
+      openSimulatorApp('role-messages')
+      return
+    }
     setSelectedRoleId(role.id)
     setUnreadMap((prev) => ({ ...prev, [role.id]: 0 }))
     setTab('chat')
@@ -755,8 +965,33 @@ export function ChatApp({
     return withoutDragging
   }
 
+  function refreshMemorySummary(sessionId: string) {
+    const rounds = Math.max(2, Number(advancedSettings.autoSummaryRounds) || 2)
+    setSessionMap((prev) => {
+      const source = prev[sessionId]
+      if (!source || source.messages.length === 0) return prev
+      if (!advancedSettings.autoSummaryEnabled) return prev
+      if (source.messages.length % rounds !== 0) return prev
+      const latest = source.messages.slice(-Math.min(rounds, 6))
+      const summary = latest
+        .map((message) => `${message.role === 'user' ? '我' : 'TA'}：${message.content}`)
+        .join(' | ')
+      return {
+        ...prev,
+        [sessionId]: {
+          ...source,
+          memory: {
+            ...source.memory,
+            summary: summary.slice(0, 240),
+          },
+        },
+      }
+    })
+  }
+
   async function handleSend(content: string) {
-    const cleaned = content.trim()
+    const input = content.trim()
+    const cleaned = advancedSettings.marsModeEnabled ? toMarsText(input) : input
     if (!cleaned || isSending || !selectedRoleId || !activeSessionId) {
       return
     }
@@ -781,6 +1016,27 @@ export function ChatApp({
     setSuccessText('')
     setIsSending(true)
     webPlatformBridge.vibrate(10)
+    playNotifyTone('outgoing')
+
+    if (advancedSettings.offlineModeEnabled) {
+      const offlineReply = `（线下模式）已收到：${cleaned.slice(0, 48)}`
+      const offlineMessages: ChatMessage[] = [
+        ...optimisticMessages,
+        { role: 'assistant', content: offlineReply, timestamp: new Date().toISOString() },
+      ]
+      setSessionMap((prev) => ({
+        ...prev,
+        [activeSessionId]: {
+          ...(prev[activeSessionId] ?? defaultSessionState()),
+          messages: offlineMessages,
+        },
+      }))
+      playNotifyTone('incoming')
+      refreshMemorySummary(activeSessionId)
+      setSuccessText('线下模式：已使用本地回声回复')
+      setIsSending(false)
+      return
+    }
 
     try {
       const result = await sendRoleMessage({
@@ -796,6 +1052,8 @@ export function ChatApp({
           sessionWorldBookId: result.sessionWorldBookId || prev[activeSessionId]?.sessionWorldBookId || '',
         },
       }))
+      playNotifyTone('incoming')
+      refreshMemorySummary(activeSessionId)
     } catch (error) {
       if (error instanceof UnifiedApiError) {
         setErrorText(`${error.code}: ${error.message}`)
@@ -851,12 +1109,6 @@ export function ChatApp({
     } finally {
       setMessageActionMenu(null)
     }
-  }
-
-  function handleDeleteMessage(index: number) {
-    removeMessageByIndex(index)
-    setSuccessText('已删除消息')
-    setMessageActionMenu(null)
   }
 
   function handleRecallMessage(index: number, message: ChatMessage) {
@@ -921,22 +1173,6 @@ export function ChatApp({
     const next = !memorySyncRoleIds[selectedRoleId]
     setMemorySyncRoleIds((prev) => ({ ...prev, [selectedRoleId]: next }))
     setSuccessText(next ? '已开启记忆互通' : '已关闭记忆互通')
-  }
-
-  function startCall(mode: 'voice' | 'video') {
-    if (!selectedRoleId) return
-    setCallOverlay({ mode, status: 'ringing' })
-  }
-
-  function acceptCall() {
-    setCallOverlay((prev) => {
-      if (!prev) return prev
-      return { ...prev, status: 'connected' }
-    })
-  }
-
-  function hangupCall() {
-    setCallOverlay(null)
   }
 
   function handleWallpaperUpload(event: ChangeEvent<HTMLInputElement>, target: 'global' | 'session') {
@@ -1240,6 +1476,64 @@ export function ChatApp({
     }
   }
 
+  function triggerImportData() {
+    dataImportInputRef.current?.click()
+  }
+
+  async function handleImportData(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setErrorText('')
+    setSuccessText('')
+    setIsImportingData(true)
+    try {
+      const content = await file.text()
+      const parsed = JSON.parse(content) as Record<string, unknown>
+      const result = await importData(parsed)
+      await bootstrap()
+      setSuccessText(
+        `导入完成：角色 ${result.roles} 个，世界书 ${result.worldBooks} 本，会话 ${result.conversations} 条`,
+      )
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : '导入失败，请检查文件格式')
+    } finally {
+      setIsImportingData(false)
+    }
+  }
+
+  async function handlePurgeData() {
+    const confirmed = window.confirm('将清空所有角色、世界书与聊天记录，该操作不可恢复。是否继续？')
+    if (!confirmed) return
+    setErrorText('')
+    setSuccessText('')
+    setIsPurgingData(true)
+    try {
+      await purgeData('PURGE_ALL')
+      await bootstrap()
+      setSuccessText('已清空所有数据')
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : '清空失败，请稍后重试')
+    } finally {
+      setIsPurgingData(false)
+    }
+  }
+
+  async function handleSaveAutomationSettings() {
+    setIsSavingAutomation(true)
+    setErrorText('')
+    setSuccessText('')
+    try {
+      const result = await saveAutomationSettings(toAutomationPayload(advancedSettings))
+      setAdvancedSettings((prev) => mergeAdvancedWithRemote(prev, result.automationSettings))
+      setSuccessText('自动化设置已保存到后端')
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : '保存自动化设置失败')
+    } finally {
+      setIsSavingAutomation(false)
+    }
+  }
+
   async function handleSaveChatSettings() {
     setIsSavingChatSettings(true)
     setErrorText('')
@@ -1461,7 +1755,7 @@ export function ChatApp({
         localTheme.themeMode === 'night' || (localTheme.themeMode === 'custom' && localTheme.nightMode)
           ? 'night'
           : 'light'
-      } ${
+      } pixel-reforge ${
         uiFlags.newChatUI ? 'ui-chat-modern' : ''
       } ${uiFlags.newSettingsUI ? 'ui-settings-modern' : ''}`}
       style={{
@@ -1703,14 +1997,6 @@ export function ChatApp({
                   {selectedRole.name}
                   {isSelectedRoleBlocked ? <em className="blocked-flag">黑名单</em> : null}
                 </span>
-                <div className="chat-header-actions">
-                  <PixelButton size="sm" variant="ghost" onClick={() => startCall('voice')}>
-                    语音
-                  </PixelButton>
-                  <PixelButton size="sm" variant="ghost" onClick={() => startCall('video')}>
-                    视频
-                  </PixelButton>
-                </div>
                 <PixelButton size="sm" variant="ghost" onClick={() => setShowPlusPanel((prev) => !prev)}>
                   ⋯
                 </PixelButton>
@@ -1833,13 +2119,6 @@ export function ChatApp({
                     <button
                       type="button"
                       className="message-action-item"
-                      onClick={() => handleDeleteMessage(messageActionMenu.index)}
-                    >
-                      删除
-                    </button>
-                    <button
-                      type="button"
-                      className="message-action-item"
                       onClick={() =>
                         handleRecallMessage(messageActionMenu.index, messageActionMenu.message)
                       }
@@ -1848,14 +2127,6 @@ export function ChatApp({
                     </button>
                   </div>
                 ) : null}
-              </div>
-
-              <div className="memory-panel">
-                <p>记忆摘要：{activeSession.memory.summary || '暂无'}</p>
-                <p>关键事实：{activeSession.memory.facts.length ? activeSession.memory.facts.join('；') : '暂无'}</p>
-                <p>角色世界书：{roleWorldBook?.name || '未绑定'}</p>
-                <p>会话世界书：{sessionWorldBook?.name || '未绑定'}</p>
-                <p>记忆互通：{isMemorySyncEnabled ? '开启' : '关闭'}</p>
               </div>
 
               {showPlusPanel ? (
@@ -1886,8 +2157,38 @@ export function ChatApp({
                     <PixelButton size="sm" variant="ghost" onClick={toggleMemorySyncSelectedRole}>
                       {isMemorySyncEnabled ? '关闭记忆互通' : '开启记忆互通'}
                     </PixelButton>
+                    <PixelButton
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        setAdvancedSettings((prev) => ({ ...prev, offlineModeEnabled: !prev.offlineModeEnabled }))
+                      }
+                    >
+                      {advancedSettings.offlineModeEnabled ? '关闭线下模式' : '线下模式'}
+                    </PixelButton>
+                    <PixelButton
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        setAdvancedSettings((prev) => ({ ...prev, marsModeEnabled: !prev.marsModeEnabled }))
+                      }
+                    >
+                      {advancedSettings.marsModeEnabled ? '关闭火星模式' : '火星模式'}
+                    </PixelButton>
+                    <PixelButton size="sm" variant="ghost" onClick={() => refreshMemorySummary(activeSessionId)}>
+                      总结
+                    </PixelButton>
                     <PixelButton size="sm" variant="ghost" onClick={recallLastUserMessage}>
                       撤回我上一条
+                    </PixelButton>
+                    <PixelButton
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        setText((prev) => `${prev}${prev ? '\n' : ''}👏 [拍了拍你]`)
+                      }
+                    >
+                      拍一拍
                     </PixelButton>
                     <PixelButton size="sm" variant="ghost" onClick={() => setText((prev) => `${prev}${prev ? '\n' : ''}📷 [发送了一张照片]`)}>
                       照片
@@ -1900,6 +2201,13 @@ export function ChatApp({
                     </PixelButton>
                     <PixelButton size="sm" variant="ghost" onClick={() => setText((prev) => `${prev}${prev ? '\n' : ''}💸 [发起了转账]`)}>
                       转账
+                    </PixelButton>
+                    <PixelButton
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setText((prev) => `${prev}${prev ? '\n' : ''}📚 一起看书吗？`)}
+                    >
+                      一起看书
                     </PixelButton>
                     <PixelButton size="sm" variant="danger" onClick={clearActiveConversation}>
                       清空聊天
@@ -2304,6 +2612,131 @@ export function ChatApp({
               </PixelButton>
               <PixelButton variant="ghost" onClick={handleExportData}>
                 导出数据
+              </PixelButton>
+              <PixelButton variant="ghost" onClick={triggerImportData} disabled={isImportingData}>
+                {isImportingData ? '导入中...' : '导入数据'}
+              </PixelButton>
+              <PixelButton variant="danger" onClick={() => void handlePurgeData()} disabled={isPurgingData}>
+                {isPurgingData ? '清空中...' : '清空所有数据'}
+              </PixelButton>
+            </div>
+            <input
+              ref={dataImportInputRef}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              onChange={(event) => void handleImportData(event)}
+            />
+          </div>
+          <div className={`worldbook-editor ${uiFlags.newSettingsUI ? 'settings-card' : ''}`}>
+            <h4>自动化与通知</h4>
+            <label className="text-pixel-text-muted">开启主动发消息</label>
+            <select
+              className="pixel-select"
+              value={advancedSettings.autoMessageEnabled ? '1' : '0'}
+              onChange={(event) =>
+                setAdvancedSettings((prev) => ({ ...prev, autoMessageEnabled: event.target.value === '1' }))
+              }
+            >
+              <option value="1">开启</option>
+              <option value="0">关闭</option>
+            </select>
+            <label className="text-pixel-text-muted">间隔（分钟）</label>
+            <PixelInput
+              type="number"
+              min={1}
+              max={180}
+              value={String(advancedSettings.autoMessageIntervalMinutes)}
+              onChange={(event) =>
+                setAdvancedSettings((prev) => ({
+                  ...prev,
+                  autoMessageIntervalMinutes: Math.max(1, Number(event.target.value) || 1),
+                }))
+              }
+            />
+            <label className="text-pixel-text-muted">选择生效角色</label>
+            <div className="group-member-list">
+              {roles.map((role) => {
+                const checked = advancedSettings.autoMessageRoleIds.includes(role.id)
+                return (
+                  <label key={`auto-role-${role.id}`} className="group-member-item">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() =>
+                        setAdvancedSettings((prev) => ({
+                          ...prev,
+                          autoMessageRoleIds: checked
+                            ? prev.autoMessageRoleIds.filter((id) => id !== role.id)
+                            : [...prev.autoMessageRoleIds, role.id],
+                        }))
+                      }
+                    />
+                    <span>{role.name}</span>
+                  </label>
+                )
+              })}
+            </div>
+            <label className="text-pixel-text-muted">后台通知保活</label>
+            <select
+              className="pixel-select"
+              value={advancedSettings.keepAliveEnabled ? '1' : '0'}
+              onChange={(event) =>
+                setAdvancedSettings((prev) => ({ ...prev, keepAliveEnabled: event.target.value === '1' }))
+              }
+            >
+              <option value="1">开启</option>
+              <option value="0">关闭</option>
+            </select>
+            <label className="text-pixel-text-muted">开启自动总结</label>
+            <select
+              className="pixel-select"
+              value={advancedSettings.autoSummaryEnabled ? '1' : '0'}
+              onChange={(event) =>
+                setAdvancedSettings((prev) => ({ ...prev, autoSummaryEnabled: event.target.value === '1' }))
+              }
+            >
+              <option value="1">开启</option>
+              <option value="0">关闭</option>
+            </select>
+            <label className="text-pixel-text-muted">触发轮数</label>
+            <PixelInput
+              type="number"
+              min={2}
+              max={20}
+              value={String(advancedSettings.autoSummaryRounds)}
+              onChange={(event) =>
+                setAdvancedSettings((prev) => ({
+                  ...prev,
+                  autoSummaryRounds: Math.max(2, Number(event.target.value) || 2),
+                }))
+              }
+            />
+            <label className="text-pixel-text-muted">消息提示音（AI 发消息）</label>
+            <select
+              className="pixel-select"
+              value={advancedSettings.incomingSoundEnabled ? '1' : '0'}
+              onChange={(event) =>
+                setAdvancedSettings((prev) => ({ ...prev, incomingSoundEnabled: event.target.value === '1' }))
+              }
+            >
+              <option value="1">开启</option>
+              <option value="0">关闭</option>
+            </select>
+            <label className="text-pixel-text-muted">消息提示音（我发消息）</label>
+            <select
+              className="pixel-select"
+              value={advancedSettings.outgoingSoundEnabled ? '1' : '0'}
+              onChange={(event) =>
+                setAdvancedSettings((prev) => ({ ...prev, outgoingSoundEnabled: event.target.value === '1' }))
+              }
+            >
+              <option value="1">开启</option>
+              <option value="0">关闭</option>
+            </select>
+            <div className="chat-toolbar">
+              <PixelButton onClick={() => void handleSaveAutomationSettings()} disabled={isSavingAutomation}>
+                {isSavingAutomation ? '保存中...' : '保存自动化设置'}
               </PixelButton>
             </div>
           </div>
@@ -2788,44 +3221,6 @@ export function ChatApp({
               {isSavingChatSettings ? '保存中...' : '保存聊天设置'}
             </PixelButton>
           </section>
-        </div>
-      ) : null}
-
-      {callOverlay && selectedRole ? (
-        <div className="call-overlay">
-          <div className={`call-card ${uiFlags.newChatUI ? 'call-card-modern' : ''}`}>
-            <p className="text-pixel-text-muted">
-              {callOverlay.mode === 'voice' ? '语音通话' : '视频通话'}
-            </p>
-            <h4>{selectedRole.name}</h4>
-            <p>
-              {callOverlay.status === 'ringing'
-                ? '邀请你进行通话...'
-                : callOverlay.mode === 'voice'
-                  ? '语音通话中 00:00'
-                  : '视频通话中 00:00'}
-            </p>
-            <div className="chat-toolbar">
-              {callOverlay.status === 'ringing' ? (
-                <>
-                  <PixelButton variant="danger" onClick={hangupCall}>
-                    拒绝
-                  </PixelButton>
-                  <PixelButton onClick={acceptCall}>接听</PixelButton>
-                </>
-              ) : (
-                <>
-                  <PixelButton variant="ghost">
-                    {callOverlay.mode === 'voice' ? '免提' : '翻转'}
-                  </PixelButton>
-                  <PixelButton variant="ghost">静音</PixelButton>
-                  <PixelButton variant="danger" onClick={hangupCall}>
-                    挂断
-                  </PixelButton>
-                </>
-              )}
-            </div>
-          </div>
         </div>
       ) : null}
 

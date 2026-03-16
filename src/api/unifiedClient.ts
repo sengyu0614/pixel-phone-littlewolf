@@ -3,6 +3,9 @@ import type {
   AIConfigPublic,
   ChatUiSettings,
   ChatResponse,
+  AutomationSettings,
+  ConversationSnapshot,
+  LicenseStatus,
   RoleProfile,
   UserPersonaMemory,
   WorldBook,
@@ -147,4 +150,50 @@ export async function bindSessionWorldBook(sessionId: string, roleId: string, wo
 
 export async function exportData() {
   return request<Record<string, unknown>>('/api/export', { method: 'GET' })
+}
+
+export async function importData(data: Record<string, unknown>) {
+  return request<{ ok: boolean; roles: number; worldBooks: number; conversations: number }>('/api/import', {
+    method: 'POST',
+    body: JSON.stringify({ data }),
+  })
+}
+
+export async function purgeData(confirmText: string) {
+  return request<{ ok: boolean }>('/api/purge', {
+    method: 'DELETE',
+    body: JSON.stringify({ confirmText }),
+  })
+}
+
+export async function fetchLicenseStatus() {
+  return request<LicenseStatus>('/api/license/status', { method: 'GET' })
+}
+
+export async function activateLicense(input: { code: string; deviceId: string; nickname?: string }) {
+  return request<{ ok: boolean; activated: boolean; activatedAt: string; nickname: string }>(
+    '/api/license/activate',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  )
+}
+
+export async function fetchAutomationSettings() {
+  return request<AutomationSettings>('/api/automation/settings', { method: 'GET' })
+}
+
+export async function saveAutomationSettings(input: AutomationSettings) {
+  return request<{ ok: boolean; automationSettings: AutomationSettings }>('/api/automation/settings', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function fetchSessionsSnapshot() {
+  const result = await request<{ conversations: Record<string, ConversationSnapshot> }>('/api/sessions', {
+    method: 'GET',
+  })
+  return result.conversations
 }

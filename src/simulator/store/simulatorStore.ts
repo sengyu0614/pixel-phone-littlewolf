@@ -21,6 +21,8 @@ const defaultModels: Record<AIProvider, string> = {
   gemini: 'gemini-1.5-flash',
 }
 
+const temporarilyClosedAppIds = new Set(['role-moments', 'role-forum'])
+
 export const useSimulatorStore = create<SimulatorState>((set) => ({
   activeAppId: null,
   openedAppIds: [],
@@ -29,6 +31,9 @@ export const useSimulatorStore = create<SimulatorState>((set) => ({
   openApp: (appId) =>
     set((state) => {
       if (!isRegisteredApp(appId)) {
+        return state
+      }
+      if (temporarilyClosedAppIds.has(appId)) {
         return state
       }
 
@@ -44,6 +49,9 @@ export const useSimulatorStore = create<SimulatorState>((set) => ({
   switchApp: (appId) =>
     set((state) => {
       if (!state.openedAppIds.includes(appId)) {
+        return state
+      }
+      if (temporarilyClosedAppIds.has(appId)) {
         return state
       }
       return { activeAppId: appId }
