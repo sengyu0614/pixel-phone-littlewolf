@@ -1,11 +1,8 @@
 import {
   RoleContactsApp,
-  RoleDiaryApp,
   RoleMessagesApp,
-  RoleMomentsApp,
   RolePersonaApp,
   RoleSettingsApp,
-  RoleWalletApp,
   RoleWorldBookApp,
 } from '../apps/RolePhoneApps'
 import type { AppDefinition } from './types'
@@ -45,27 +42,6 @@ export const appRegistry: AppDefinition[] = [
     icon: '配',
     description: '配置 API、世界书与聊天样式',
     component: RoleSettingsApp,
-  },
-  {
-    id: 'role-moments',
-    name: '朋友圈',
-    icon: '圈',
-    description: '发布动态并查看好友圈内容',
-    component: RoleMomentsApp,
-  },
-  {
-    id: 'role-diary',
-    name: '日记',
-    icon: '记',
-    description: '记录每天的心情与事件',
-    component: RoleDiaryApp,
-  },
-  {
-    id: 'role-wallet',
-    name: '钱包',
-    icon: '包',
-    description: '管理余额和账单明细',
-    component: RoleWalletApp,
   },
 ]
 

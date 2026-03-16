@@ -2,12 +2,12 @@ export type UiFeatureFlagKey = 'newHomeUI' | 'newChatUI' | 'newSettingsUI'
 
 export type UiFeatureFlags = Record<UiFeatureFlagKey, boolean>
 
-const STORAGE_KEY = 'pixel-phone-ui-flags-v2'
+const STORAGE_KEY = 'pixel-phone-ui-flags-v1'
 
 const defaultUiFlags: UiFeatureFlags = {
-  newHomeUI: false,
-  newChatUI: false,
-  newSettingsUI: false,
+  newHomeUI: true,
+  newChatUI: true,
+  newSettingsUI: true,
 }
 
 function normalizeBooleanFlag(value: unknown, fallback: boolean) {

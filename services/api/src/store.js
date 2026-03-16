@@ -75,13 +75,6 @@ function createInitialState() {
       privateMemory: '',
       allowPrivateForAI: false,
     },
-    socialMeta: {
-      roleAvatarMap: {},
-      friendGroupNames: ['默认分组'],
-      friendGroupMap: {},
-      relationshipMap: {},
-      groupMetaMap: {},
-    },
     conversations: {},
   }
 }

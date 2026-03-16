@@ -190,191 +190,6 @@ body {
   align-content: start;
 }
 
-.pixel-home-page {
-  height: 100%;
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-  gap: 0.7rem;
-  align-content: start;
-  overflow-y: auto;
-  padding-right: 0.05rem;
-}
-
-.pixel-home-upload-input {
-  display: none;
-}
-
-.pixel-home-profile-card,
-.pixel-home-widget-card {
-  background: var(--panel-soft);
-  border: 3px solid var(--pixel-border);
-  box-shadow: 4px 4px 0 var(--pixel-shadow);
-}
-
-.pixel-home-profile-card {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.6rem;
-  padding: 0.55rem;
-}
-
-.pixel-home-avatar-btn {
-  width: 3.2rem;
-  height: 3.2rem;
-  border: 2px solid var(--pixel-border);
-  background: var(--panel);
-  color: var(--text);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  overflow: hidden;
-}
-
-.pixel-home-avatar-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.pixel-home-avatar-text {
-  font-size: 1.2rem;
-  font-weight: 700;
-}
-
-.pixel-home-profile-info {
-  display: grid;
-  gap: 0.38rem;
-}
-
-.pixel-home-edit-btn {
-  width: 100%;
-  border: 2px solid var(--pixel-border);
-  background: var(--bg-elevated);
-  color: var(--text);
-  font-size: 0.72rem;
-  text-align: left;
-  padding: 0.28rem 0.42rem;
-  cursor: pointer;
-}
-
-.pixel-home-edit-btn:hover,
-.pixel-home-avatar-btn:hover,
-.pixel-home-image-btn:hover,
-.pixel-home-app-btn:hover {
-  transform: translate(-1px, -1px);
-}
-
-.pixel-home-location-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.pixel-home-location-icon {
-  color: #fda4af;
-  font-size: 0.72rem;
-}
-
-.pixel-home-widget-card {
-  display: grid;
-  gap: 0.46rem;
-  padding: 0.55rem;
-}
-
-.pixel-home-widget-header {
-  border: 2px solid var(--pixel-border);
-  background: var(--bg-elevated);
-  color: #e9ddff;
-  font-size: 0.72rem;
-  text-align: left;
-  padding: 0.28rem 0.42rem;
-  cursor: pointer;
-}
-
-.pixel-home-widget-bubble {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 0.42rem;
-}
-
-.pixel-home-widget-bubble-reverse {
-  grid-template-columns: 1fr auto;
-}
-
-.pixel-home-image-btn {
-  border: 2px solid var(--pixel-border);
-  background: var(--panel);
-  width: 2.4rem;
-  height: 2.4rem;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  cursor: pointer;
-  overflow: hidden;
-}
-
-.pixel-home-inline-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.pixel-home-inline-image-fallback {
-  font-size: 0.68rem;
-  color: var(--text-muted);
-}
-
-.pixel-home-app-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.52rem;
-  align-content: start;
-}
-
-.pixel-home-app-btn {
-  border: 3px solid var(--pixel-border);
-  background: var(--panel-soft);
-  box-shadow: 4px 4px 0 var(--pixel-shadow);
-  color: var(--text);
-  display: grid;
-  gap: 0.24rem;
-  place-items: center;
-  min-height: 5.2rem;
-  padding: 0.38rem 0.2rem;
-  cursor: pointer;
-}
-
-.pixel-home-app-btn.is-placeholder {
-  background: var(--panel-strong);
-}
-
-.pixel-home-app-icon {
-  width: 2rem;
-  height: 2rem;
-  border: 2px solid var(--pixel-border);
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: #fff;
-}
-
-.pixel-home-app-label {
-  font-size: 0.68rem;
-}
-
-.pixel-home-app-meta {
-  font-size: 0.62rem;
-  color: var(--text-muted);
-}
-
-.pixel-home-page button:focus-visible {
-  outline: 2px solid var(--pixel-focus);
-  outline-offset: 1px;
-}
-
 .pixel-icon-button {
   background: var(--panel-soft);
   border: 3px solid var(--pixel-border);
@@ -579,11 +394,6 @@ body {
   flex-direction: column;
   overflow: auto;
   border-right: 2px solid var(--pixel-border);
-}
-
-.conversation-search-wrap {
-  padding: 0.35rem 0.45rem;
-  border-bottom: 1px solid #2e2449;
 }
 
 .wechat-head {
@@ -828,12 +638,6 @@ body {
   background: #312e81;
 }
 
-.bubble.system {
-  align-self: center;
-  background: #2a2542;
-  border-style: dashed;
-}
-
 .bubble-role {
   margin: 0 0 0.2rem;
   color: #d8b4fe;
@@ -852,10 +656,6 @@ body {
 
 .message-row.assistant {
   justify-content: flex-start;
-}
-
-.message-row.system {
-  justify-content: center;
 }
 
 .bubble-with-style {
@@ -1139,102 +939,6 @@ body {
   text-align: left;
 }
 
-.role-card-shell {
-  border: 2px solid var(--pixel-border);
-  background: #1f1836;
-  display: flex;
-  align-items: stretch;
-}
-
-.role-card-shell.active {
-  background: #312e81;
-}
-
-.role-card-main {
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.4rem;
-  cursor: pointer;
-  text-align: left;
-  flex: 1;
-  min-width: 0;
-}
-
-.role-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.35rem;
-  border-left: 1px solid rgba(0, 0, 0, 0.65);
-}
-
-.group-flag {
-  margin-left: 0.25rem;
-  border: 1px solid #000;
-  background: #2563eb;
-  color: #fff;
-  font-style: normal;
-  font-size: 0.58rem;
-  padding: 0 0.2rem;
-  line-height: 1.2;
-}
-
-.group-member-summary {
-  font-size: 0.62rem;
-  color: #d7c8fa;
-  max-width: 12rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-member-manage {
-  border: 1px solid rgba(0, 0, 0, 0.75);
-  background: #1a1430;
-  padding: 0.35rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.grouped-role-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.grouped-role-title {
-  margin: 0.2rem 0 0.1rem;
-  color: #d7c8fa;
-  font-size: 0.68rem;
-}
-
-.profile-avatar-box {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.profile-avatar-image {
-  width: 3rem;
-  height: 3rem;
-  border: 2px solid #000;
-  object-fit: cover;
-}
-
-.group-pending-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.35rem;
-  border: 1px solid #000;
-  padding: 0.25rem;
-}
-
 .role-card.active {
   background: #312e81;
 }
@@ -1248,19 +952,6 @@ body {
   place-items: center;
   font-size: 0.7rem;
   font-weight: 700;
-  overflow: hidden;
-}
-
-.role-avatar-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.role-avatar-large {
-  width: 3rem;
-  height: 3rem;
-  font-size: 1rem;
 }
 
 .role-meta {
@@ -1357,37 +1048,6 @@ body {
 .launcher-grid-modern {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--modern-space-lg);
-}
-
-.pixel-home-page-modern {
-  gap: var(--modern-space-lg);
-}
-
-.pixel-home-page-modern .pixel-home-profile-card,
-.pixel-home-page-modern .pixel-home-widget-card,
-.pixel-home-page-modern .pixel-home-app-btn {
-  border: 1px solid var(--theme-border-subtle);
-  border-radius: var(--modern-radius-md);
-  box-shadow: var(--theme-shadow);
-  background: var(--theme-surface-1);
-}
-
-.pixel-home-page-modern .pixel-home-avatar-btn,
-.pixel-home-page-modern .pixel-home-edit-btn,
-.pixel-home-page-modern .pixel-home-widget-header,
-.pixel-home-page-modern .pixel-home-image-btn,
-.pixel-home-page-modern .pixel-home-app-icon {
-  border: 1px solid var(--theme-border-subtle);
-  border-radius: var(--modern-radius-sm);
-  box-shadow: none;
-}
-
-.pixel-home-page-modern .pixel-home-app-grid {
-  gap: var(--modern-space-md);
-}
-
-.pixel-home-page-modern .pixel-home-app-btn {
-  min-height: 5.7rem;
 }
 
 .launcher-grid-modern .pixel-icon-button {
@@ -1708,30 +1368,4 @@ body {
   .theme-preset-grid {
     grid-template-columns: 1fr;
   }
-}
-
-/* Force strict PIXEL style: hard edges and no soft UI effects. */
-.ui-home-modern *,
-.ui-chat-modern *,
-.ui-settings-modern * {
-  border-radius: 0 !important;
-  backdrop-filter: none !important;
-}
-
-.ui-home-modern .pixel-icon-button,
-.ui-home-modern .app-runtime-header,
-.ui-chat-modern .wechat-shell-modern,
-.ui-chat-modern .chat-panel-modern,
-.ui-chat-modern .chat-input-row-modern,
-.ui-chat-modern .wechat-chat-header,
-.ui-chat-modern .bubble,
-.ui-chat-modern .memory-panel,
-.ui-chat-modern .plus-panel,
-.ui-chat-modern .message-action-menu,
-.ui-chat-modern .call-card-modern,
-.ui-settings-modern .settings-card,
-.ui-settings-modern .settings-flag-panel,
-.ui-settings-modern .theme-preset-card,
-.ui-settings-modern .settings-toggle-item {
-  box-shadow: none !important;
 }

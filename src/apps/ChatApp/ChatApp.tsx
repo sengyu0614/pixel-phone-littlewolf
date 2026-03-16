@@ -5,20 +5,16 @@ import {
   bindSessionWorldBook,
   createWorldBook,
   createRole,
-  deleteRole,
   exportData,
   fetchChatSettings,
   fetchConfig,
   fetchUserPersona,
   fetchRoles,
-  fetchSocialMeta,
   fetchWorldBooks,
   saveChatSettings,
   saveConfig,
-  saveSocialMeta,
   saveUserPersona,
   sendRoleMessage,
-  updateRole,
 } from '../../api/unifiedClient'
 import { PixelButton, PixelInput } from '../../components/ui'
 import type {
@@ -29,7 +25,6 @@ import type {
   MemorySnapshot,
   ReadReceiptStyle,
   RoleProfile,
-  SocialMeta,
   TimestampStyle,
   UserPersonaMemory,
   WorldBook,
@@ -42,15 +37,7 @@ import { resolveUiFeatureFlags, saveUiFeatureFlags } from '../../theme/featureFl
 import type { UiFeatureFlagKey, UiFeatureFlags } from '../../theme/featureFlags'
 import { applyThemeMode } from '../../theme/themeMode'
 
-export type TabKey =
-  | 'roles'
-  | 'chat'
-  | 'profile'
-  | 'group-settings'
-  | 'worldbook'
-  | 'editor'
-  | 'settings'
-  | 'chat-style'
+export type TabKey = 'roles' | 'chat' | 'worldbook' | 'editor' | 'settings' | 'chat-style'
 type ChatViewMode = 'list' | 'detail'
 
 type SessionState = {
@@ -132,19 +119,6 @@ type PersonaTemplate = {
   readableMemory: string
   privateMemory: string
   allowPrivateForAI: boolean
-}
-
-type GroupMeta = {
-  memberRoleIds: string[]
-  notice: string
-  ownerRoleId: string
-  adminRoleIds: string[]
-  pendingMemberRoleIds: string[]
-}
-
-type RelationshipMeta = {
-  intimacy: number
-  autoInteractEnabled: boolean
 }
 
 type RoleDraftInput = {
@@ -342,24 +316,6 @@ function buildRoleDraftPayload(input: RoleDraftInput) {
   }
 }
 
-function normalizeSocialMeta(input?: Partial<SocialMeta>) {
-  const friendGroupNames = Array.isArray(input?.friendGroupNames)
-    ? Array.from(new Set(input.friendGroupNames.map((item) => String(item || '').trim()).filter(Boolean)))
-    : []
-  if (!friendGroupNames.includes('默认分组')) {
-    friendGroupNames.unshift('默认分组')
-  }
-  return {
-    roleAvatarMap: input?.roleAvatarMap && typeof input.roleAvatarMap === 'object' ? input.roleAvatarMap : {},
-    friendGroupNames,
-    friendGroupMap:
-      input?.friendGroupMap && typeof input.friendGroupMap === 'object' ? input.friendGroupMap : {},
-    relationshipMap:
-      input?.relationshipMap && typeof input.relationshipMap === 'object' ? input.relationshipMap : {},
-    groupMetaMap: input?.groupMetaMap && typeof input.groupMetaMap === 'object' ? input.groupMetaMap : {},
-  }
-}
-
 function defaultApiUiSettings(): ApiUiSettings {
   return {
     apiUrl: '',
@@ -380,22 +336,11 @@ type ChatAppProps = AppRuntimeProps & {
   enableSettingsSubTabs?: boolean
 }
 
-const MAIN_TAB_DEFAULT_ORDER: TabKey[] = [
-  'roles',
-  'chat',
-  'profile',
-  'group-settings',
-  'worldbook',
-  'editor',
-  'settings',
-  'chat-style',
-]
+const MAIN_TAB_DEFAULT_ORDER: TabKey[] = ['roles', 'chat', 'worldbook', 'editor', 'settings', 'chat-style']
 const SETTINGS_SUB_TAB_ORDER: TabKey[] = ['settings', 'chat-style']
 const TAB_LABELS: Record<TabKey, string> = {
   roles: '通讯录',
   chat: '聊天',
-  profile: '资料',
-  'group-settings': '群设置',
   worldbook: '世界书',
   editor: '人设',
   settings: '设置',
@@ -444,20 +389,7 @@ export function ChatApp({
   const [showRoleQuickMenu, setShowRoleQuickMenu] = useState(false)
   const [showAddFriendForm, setShowAddFriendForm] = useState(false)
   const [showCreateGroupForm, setShowCreateGroupForm] = useState(false)
-  const [contactSearch, setContactSearch] = useState('')
-  const [chatSearch, setChatSearch] = useState('')
   const [selectedThemePresetId, setSelectedThemePresetId] = useState<string>('')
-  const [groupMetaMap, setGroupMetaMap] = useState<Record<string, GroupMeta>>({})
-  const [groupEditingMemberIds, setGroupEditingMemberIds] = useState<string[]>([])
-  const [groupEditingNotice, setGroupEditingNotice] = useState('')
-  const [groupEditingAdminRoleIds, setGroupEditingAdminRoleIds] = useState<string[]>([])
-  const [showInviteMemberPanel, setShowInviteMemberPanel] = useState(false)
-  const [inviteCandidateRoleIds, setInviteCandidateRoleIds] = useState<string[]>([])
-  const [roleAvatarMap, setRoleAvatarMap] = useState<Record<string, string>>({})
-  const [friendGroupNames, setFriendGroupNames] = useState<string[]>(['默认分组'])
-  const [friendGroupMap, setFriendGroupMap] = useState<Record<string, string>>({})
-  const [newFriendGroupName, setNewFriendGroupName] = useState('')
-  const [relationshipMap, setRelationshipMap] = useState<Record<string, RelationshipMeta>>({})
   const [newFriendName, setNewFriendName] = useState('')
   const [newFriendDescription, setNewFriendDescription] = useState('')
   const [newFriendCharPersona, setNewFriendCharPersona] = useState('')
@@ -474,7 +406,6 @@ export function ChatApp({
   const [personaTemplates, setPersonaTemplates] = useState<PersonaTemplate[]>([])
   const [highlightedPersonaTemplateId, setHighlightedPersonaTemplateId] = useState<string | null>(null)
   const [isSavingUserPersona, setIsSavingUserPersona] = useState(false)
-  const [isHydratingSocialMeta, setIsHydratingSocialMeta] = useState(true)
   const [errorText, setErrorText] = useState('')
   const [successText, setSuccessText] = useState('')
   const longPressTimerRef = useRef<number | null>(null)
@@ -482,7 +413,6 @@ export function ChatApp({
   const sessionWallpaperInputRef = useRef<HTMLInputElement | null>(null)
   const personaImportInputRef = useRef<HTMLInputElement | null>(null)
   const personaHighlightTimerRef = useRef<number | null>(null)
-  const socialMetaSaveTimerRef = useRef<number | null>(null)
 
   function updateUiFlag(key: UiFeatureFlagKey, enabled: boolean) {
     setUiFlags((prev) => {
@@ -530,10 +460,6 @@ export function ChatApp({
     () => roles.find((item) => item.id === selectedRoleId) ?? null,
     [roles, selectedRoleId],
   )
-  const isGroupRole = (role: RoleProfile | null) => {
-    if (!role) return false
-    return role.avatar === '群' || Boolean(groupMetaMap[role.id])
-  }
   const sortedRoles = useMemo(() => {
     const cloned = [...roles]
     cloned.sort((a, b) => {
@@ -548,63 +474,6 @@ export function ChatApp({
     })
     return cloned
   }, [roles, pinnedRoleIds, sessionMap])
-  const selectedRoleAvatar = selectedRole ? roleAvatarMap[selectedRole.id] || '' : ''
-  const selectedRoleRelationship: RelationshipMeta = selectedRoleId
-    ? relationshipMap[selectedRoleId] || { intimacy: 0, autoInteractEnabled: false }
-    : { intimacy: 0, autoInteractEnabled: false }
-  const filteredRoles = useMemo(() => {
-    const keyword = contactSearch.trim().toLowerCase()
-    if (!keyword) return roles
-    return roles.filter((role) => {
-      return (
-        role.name.toLowerCase().includes(keyword) ||
-        role.description.toLowerCase().includes(keyword) ||
-        (isGroupRole(role) ? '群聊'.includes(keyword) : false)
-      )
-    })
-  }, [roles, contactSearch, groupMetaMap])
-  const groupedFriendRoles = useMemo(() => {
-    const groups = new Map<string, RoleProfile[]>()
-    for (const role of filteredRoles.filter((item) => !isGroupRole(item))) {
-      const groupName = friendGroupMap[role.id] || '默认分组'
-      const list = groups.get(groupName) || []
-      list.push(role)
-      groups.set(groupName, list)
-    }
-    const orderedNames = Array.from(
-      new Set(['默认分组', ...friendGroupNames, ...Array.from(groups.keys())]),
-    ).filter((name) => (groups.get(name) || []).length > 0)
-    return orderedNames.map((name) => ({
-      name,
-      roles: (groups.get(name) || []).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')),
-    }))
-  }, [filteredRoles, friendGroupMap, friendGroupNames])
-  const filteredGroupRoles = useMemo(() => filteredRoles.filter((item) => isGroupRole(item)), [filteredRoles, groupMetaMap])
-  const invitableRoleCandidates = useMemo(() => {
-    if (!selectedRoleId || !isGroupRole(selectedRole)) return []
-    const meta = groupMetaMap[selectedRoleId]
-    const memberSet = new Set(meta?.memberRoleIds || [])
-    const pendingSet = new Set(meta?.pendingMemberRoleIds || [])
-    return roles.filter(
-      (role) =>
-        role.id !== selectedRoleId && !isGroupRole(role) && !memberSet.has(role.id) && !pendingSet.has(role.id),
-    )
-  }, [selectedRoleId, selectedRole, roles, groupMetaMap])
-  const filteredSortedRoles = useMemo(() => {
-    const keyword = chatSearch.trim().toLowerCase()
-    if (!keyword) return sortedRoles
-    return sortedRoles.filter((role) => {
-      const sessionId = getSessionId(role.id)
-      const snapshot = sessionMap[sessionId] ?? defaultSessionState()
-      const lastText = snapshot.messages.at(-1)?.content || ''
-      return (
-        role.name.toLowerCase().includes(keyword) ||
-        role.description.toLowerCase().includes(keyword) ||
-        lastText.toLowerCase().includes(keyword) ||
-        (isGroupRole(role) ? '群聊'.includes(keyword) : false)
-      )
-    })
-  }, [sortedRoles, chatSearch, sessionMap, groupMetaMap])
 
   const activeSessionId = selectedRoleId ? getSessionId(selectedRoleId) : ''
   const activeSession = activeSessionId ? sessionMap[activeSessionId] ?? defaultSessionState() : defaultSessionState()
@@ -619,26 +488,18 @@ export function ChatApp({
   )
   const isSelectedRoleBlocked = selectedRoleId ? Boolean(blockedRoleIds[selectedRoleId]) : false
   const isMemorySyncEnabled = selectedRoleId ? Boolean(memorySyncRoleIds[selectedRoleId]) : false
-  const selectedGroupMeta = selectedRoleId ? groupMetaMap[selectedRoleId] : undefined
-  const selectedGroupMembers = useMemo(() => {
-    if (!selectedGroupMeta) return []
-    return selectedGroupMeta.memberRoleIds
-      .map((memberId) => roles.find((role) => role.id === memberId))
-      .filter((role): role is RoleProfile => Boolean(role))
-  }, [selectedGroupMeta, roles])
 
   async function bootstrap() {
     setIsBooting(true)
     setErrorText('')
     try {
-      const [roleList, remoteConfig, worldBookList, remoteChatSettings, remoteUserPersona, remoteSocialMeta] =
+      const [roleList, remoteConfig, worldBookList, remoteChatSettings, remoteUserPersona] =
         await Promise.all([
         fetchRoles(),
         fetchConfig(),
         fetchWorldBooks(),
         fetchChatSettings(),
           fetchUserPersona(),
-          fetchSocialMeta().catch(() => null),
         ])
       setRoles(roleList)
       setWorldBooks(worldBookList)
@@ -661,18 +522,9 @@ export function ChatApp({
       setChatSettings(mergedChatSettings)
       setButtonBipEnabled(mergedChatSettings.buttonBipEnabled)
       setUserPersona({ ...defaultUserPersona(), ...remoteUserPersona })
-      if (remoteSocialMeta) {
-        const normalized = normalizeSocialMeta(remoteSocialMeta)
-        setRoleAvatarMap(normalized.roleAvatarMap)
-        setFriendGroupNames(normalized.friendGroupNames)
-        setFriendGroupMap(normalized.friendGroupMap)
-        setRelationshipMap(normalized.relationshipMap)
-        setGroupMetaMap(normalized.groupMetaMap)
-      }
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : '初始化失败')
     } finally {
-      setIsHydratingSocialMeta(false)
       setIsBooting(false)
     }
   }
@@ -850,184 +702,6 @@ export function ChatApp({
   }, [personaTemplates])
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem('pixel-group-meta-map')
-      if (!raw) return
-      const parsed = JSON.parse(raw) as Record<string, Partial<GroupMeta>>
-      if (!parsed || typeof parsed !== 'object') return
-      const next: Record<string, GroupMeta> = {}
-      for (const [roleId, value] of Object.entries(parsed)) {
-        if (!value || typeof value !== 'object') continue
-        next[roleId] = {
-          memberRoleIds: Array.isArray(value.memberRoleIds)
-            ? value.memberRoleIds
-                .map((item) => String(item || '').trim())
-                .filter(Boolean)
-            : [],
-          notice: String(value.notice || '').trim(),
-          ownerRoleId: String(value.ownerRoleId || 'me') || 'me',
-          adminRoleIds: Array.isArray(value.adminRoleIds)
-            ? value.adminRoleIds
-                .map((item) => String(item || '').trim())
-                .filter(Boolean)
-            : [],
-          pendingMemberRoleIds: Array.isArray(value.pendingMemberRoleIds)
-            ? value.pendingMemberRoleIds
-                .map((item) => String(item || '').trim())
-                .filter(Boolean)
-            : [],
-        }
-      }
-      setGroupMetaMap(next)
-    } catch {
-      // ignore invalid local cache
-    }
-  }, [])
-
-  useEffect(() => {
-    window.localStorage.setItem('pixel-group-meta-map', JSON.stringify(groupMetaMap))
-  }, [groupMetaMap])
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem('pixel-role-avatar-map')
-      if (!raw) return
-      const parsed = JSON.parse(raw) as Record<string, string>
-      if (parsed && typeof parsed === 'object') {
-        setRoleAvatarMap(parsed)
-      }
-    } catch {
-      // ignore invalid local cache
-    }
-  }, [])
-
-  useEffect(() => {
-    window.localStorage.setItem('pixel-role-avatar-map', JSON.stringify(roleAvatarMap))
-  }, [roleAvatarMap])
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem('pixel-friend-groups')
-      if (!raw) return
-      const parsed = JSON.parse(raw) as { names?: string[]; map?: Record<string, string> }
-      if (Array.isArray(parsed.names) && parsed.names.length > 0) {
-        setFriendGroupNames(Array.from(new Set(parsed.names.map((name) => String(name || '').trim()).filter(Boolean))))
-      }
-      if (parsed.map && typeof parsed.map === 'object') {
-        setFriendGroupMap(parsed.map)
-      }
-    } catch {
-      // ignore invalid local cache
-    }
-  }, [])
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      'pixel-friend-groups',
-      JSON.stringify({
-        names: friendGroupNames,
-        map: friendGroupMap,
-      }),
-    )
-  }, [friendGroupNames, friendGroupMap])
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem('pixel-relationship-map')
-      if (!raw) return
-      const parsed = JSON.parse(raw) as Record<string, Partial<RelationshipMeta>>
-      if (!parsed || typeof parsed !== 'object') return
-      const next: Record<string, RelationshipMeta> = {}
-      for (const [roleId, meta] of Object.entries(parsed)) {
-        next[roleId] = {
-          intimacy: Math.max(0, Math.min(100, Number(meta?.intimacy || 0))),
-          autoInteractEnabled: Boolean(meta?.autoInteractEnabled),
-        }
-      }
-      setRelationshipMap(next)
-    } catch {
-      // ignore invalid local cache
-    }
-  }, [])
-
-  useEffect(() => {
-    window.localStorage.setItem('pixel-relationship-map', JSON.stringify(relationshipMap))
-  }, [relationshipMap])
-
-  useEffect(() => {
-    if (isHydratingSocialMeta) return
-    if (socialMetaSaveTimerRef.current) {
-      window.clearTimeout(socialMetaSaveTimerRef.current)
-    }
-    socialMetaSaveTimerRef.current = window.setTimeout(() => {
-      const payload = normalizeSocialMeta({
-        roleAvatarMap,
-        friendGroupNames,
-        friendGroupMap,
-        relationshipMap,
-        groupMetaMap,
-      })
-      void saveSocialMeta(payload).catch(() => {
-        setErrorText('社交资料同步后端失败，已保留本地缓存')
-      })
-      socialMetaSaveTimerRef.current = null
-    }, 450)
-    return () => {
-      if (socialMetaSaveTimerRef.current) {
-        window.clearTimeout(socialMetaSaveTimerRef.current)
-        socialMetaSaveTimerRef.current = null
-      }
-    }
-  }, [
-    isHydratingSocialMeta,
-    roleAvatarMap,
-    friendGroupNames,
-    friendGroupMap,
-    relationshipMap,
-    groupMetaMap,
-  ])
-
-  useEffect(() => {
-    if (!selectedRoleId) {
-      setGroupEditingMemberIds([])
-      setGroupEditingNotice('')
-      setGroupEditingAdminRoleIds([])
-      return
-    }
-    const meta = groupMetaMap[selectedRoleId]
-    setGroupEditingMemberIds(meta?.memberRoleIds || [])
-    setGroupEditingNotice(meta?.notice || '')
-    setGroupEditingAdminRoleIds(meta?.adminRoleIds || [])
-  }, [selectedRoleId, groupMetaMap])
-
-  useEffect(() => {
-    if (roles.length === 0) return
-    const roleIdSet = new Set(roles.map((role) => role.id))
-    setGroupMetaMap((prev) => {
-      let changed = false
-      const next: Record<string, GroupMeta> = {}
-      for (const [groupRoleId, meta] of Object.entries(prev)) {
-        if (!roleIdSet.has(groupRoleId)) {
-          changed = true
-          continue
-        }
-        const memberRoleIds = meta.memberRoleIds.filter((memberId) => roleIdSet.has(memberId))
-        if (memberRoleIds.length !== meta.memberRoleIds.length) {
-          changed = true
-        }
-        next[groupRoleId] = {
-          notice: meta.notice,
-          memberRoleIds,
-          ownerRoleId: meta.ownerRoleId || 'me',
-          adminRoleIds: (meta.adminRoleIds || []).filter((id) => roleIdSet.has(id)),
-          pendingMemberRoleIds: (meta.pendingMemberRoleIds || []).filter((id) => roleIdSet.has(id)),
-        }
-      }
-      return changed ? next : prev
-    })
-  }, [roles])
-
-  useEffect(() => {
     if (!highlightedPersonaTemplateId) return
     if (personaHighlightTimerRef.current) {
       window.clearTimeout(personaHighlightTimerRef.current)
@@ -1062,37 +736,6 @@ export function ChatApp({
       clearLongPressTimer()
     }
   }, [])
-
-  function getRoleAvatarUrl(role: RoleProfile | null) {
-    if (!role) return ''
-    const local = roleAvatarMap[role.id] || ''
-    if (local) return local
-    const raw = String(role.avatar || '').trim()
-    if (/^(data:image\/|https?:\/\/|blob:)/i.test(raw)) return raw
-    return ''
-  }
-
-  function appendGroupSystemMessage(roleId: string, content: string) {
-    const sessionId = getSessionId(roleId)
-    setSessionMap((prev) => {
-      const base = prev[sessionId] ?? defaultSessionState()
-      const nextMessages = [
-        ...base.messages,
-        {
-          role: 'system',
-          content,
-          timestamp: new Date().toISOString(),
-        } as ChatMessage,
-      ]
-      return {
-        ...prev,
-        [sessionId]: {
-          ...base,
-          messages: nextMessages,
-        },
-      }
-    })
-  }
 
   function openConversation(role: RoleProfile) {
     setSelectedRoleId(role.id)
@@ -1153,48 +796,6 @@ export function ChatApp({
           sessionWorldBookId: result.sessionWorldBookId || prev[activeSessionId]?.sessionWorldBookId || '',
         },
       }))
-      setRelationshipMap((prev) => {
-        const source = prev[selectedRoleId] || { intimacy: 0, autoInteractEnabled: false }
-        return {
-          ...prev,
-          [selectedRoleId]: {
-            ...source,
-            intimacy: Math.max(0, Math.min(100, source.intimacy + 1)),
-          },
-        }
-      })
-      const autoTargets = roles
-        .filter((role) => role.id !== selectedRoleId && !isGroupRole(role))
-        .filter((role) => relationshipMap[role.id]?.autoInteractEnabled)
-        .slice(0, 2)
-      if (autoTargets.length > 0) {
-        setSessionMap((prev) => {
-          const next = { ...prev }
-          for (const role of autoTargets) {
-            const sid = getSessionId(role.id)
-            const base = next[sid] ?? defaultSessionState()
-            next[sid] = {
-              ...base,
-              messages: [
-                ...base.messages,
-                {
-                  role: 'system',
-                  content: `自动互动：${role.name} 看到你的动态，发来互动提醒。`,
-                  timestamp: new Date().toISOString(),
-                },
-              ],
-            }
-          }
-          return next
-        })
-        setUnreadMap((prev) => {
-          const next = { ...prev }
-          for (const role of autoTargets) {
-            next[role.id] = (next[role.id] ?? 0) + 1
-          }
-          return next
-        })
-      }
     } catch (error) {
       if (error instanceof UnifiedApiError) {
         setErrorText(`${error.code}: ${error.message}`)
@@ -1777,20 +1378,6 @@ export function ChatApp({
       const created = roleList.find((item) => item.name === groupName)
       if (created) {
         setSelectedRoleId(created.id)
-        setGroupMetaMap((prev) => ({
-          ...prev,
-          [created.id]: {
-            memberRoleIds: Array.from(new Set(newGroupMemberIds.filter((id) => id !== created.id))),
-            notice: '',
-            ownerRoleId: 'me',
-            adminRoleIds: [],
-            pendingMemberRoleIds: [],
-          },
-        }))
-        appendGroupSystemMessage(
-          created.id,
-          `系统消息：群聊已创建，初始成员 ${Math.max(0, newGroupMemberIds.length)} 人。`,
-        )
       }
       setNewGroupName('')
       setNewGroupMemberIds([])
@@ -1800,262 +1387,6 @@ export function ChatApp({
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : '创建群聊失败')
     }
-  }
-
-  async function handleEditRole(role: RoleProfile) {
-    const name = window.prompt('编辑联系人名称', role.name)
-    if (!name) return
-    const trimmed = name.trim()
-    if (!trimmed) {
-      setErrorText('联系人名称不能为空')
-      return
-    }
-    const description = window.prompt('编辑备注（可选）', role.description || '') ?? role.description
-    try {
-      await updateRole(role.id, {
-        name: trimmed,
-        avatar: role.avatar,
-        description: description.trim(),
-        worldBookId: role.worldBookId || '',
-        persona: role.persona,
-      })
-      const roleList = await fetchRoles()
-      setRoles(roleList)
-      setSuccessText(`已更新联系人：${trimmed}`)
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : '更新联系人失败')
-    }
-  }
-
-  async function handleDeleteRole(role: RoleProfile) {
-    const ok = window.confirm(`确定删除「${role.name}」吗？该联系人聊天记录也会被清除。`)
-    if (!ok) return
-    try {
-      await deleteRole(role.id)
-      const roleList = await fetchRoles()
-      setRoles(roleList)
-      setGroupMetaMap((prev) => {
-        const next: Record<string, GroupMeta> = {}
-        for (const [groupRoleId, meta] of Object.entries(prev)) {
-          if (groupRoleId === role.id) continue
-          next[groupRoleId] = {
-            notice: meta.notice,
-            memberRoleIds: meta.memberRoleIds.filter((id) => id !== role.id),
-            ownerRoleId: meta.ownerRoleId || 'me',
-            adminRoleIds: (meta.adminRoleIds || []).filter((id) => id !== role.id),
-            pendingMemberRoleIds: (meta.pendingMemberRoleIds || []).filter((id) => id !== role.id),
-          }
-        }
-        return next
-      })
-      setPinnedRoleIds((prev) => {
-        const next = { ...prev }
-        delete next[role.id]
-        return next
-      })
-      setUnreadMap((prev) => {
-        const next = { ...prev }
-        delete next[role.id]
-        return next
-      })
-      setBlockedRoleIds((prev) => {
-        const next = { ...prev }
-        delete next[role.id]
-        return next
-      })
-      setMemorySyncRoleIds((prev) => {
-        const next = { ...prev }
-        delete next[role.id]
-        return next
-      })
-      setRoleAvatarMap((prev) => {
-        const next = { ...prev }
-        delete next[role.id]
-        return next
-      })
-      setFriendGroupMap((prev) => {
-        const next = { ...prev }
-        delete next[role.id]
-        return next
-      })
-      setRelationshipMap((prev) => {
-        const next = { ...prev }
-        delete next[role.id]
-        return next
-      })
-      setSessionMap((prev) => {
-        const next = { ...prev }
-        delete next[getSessionId(role.id)]
-        return next
-      })
-      if (selectedRoleId === role.id) {
-        setSelectedRoleId(roleList[0]?.id ?? '')
-        setChatViewMode('list')
-      }
-      setSuccessText(`已删除联系人：${role.name}`)
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : '删除联系人失败')
-    }
-  }
-
-  function saveSelectedGroupMembers() {
-    if (!selectedRoleId || !isGroupRole(selectedRole)) return
-    const prevMeta = groupMetaMap[selectedRoleId]
-    const previousMemberIds = prevMeta?.memberRoleIds || []
-    const nextIds = Array.from(
-      new Set(groupEditingMemberIds.filter((id) => id && id !== selectedRoleId)),
-    )
-    const joined = nextIds.filter((id) => !previousMemberIds.includes(id))
-    const removed = previousMemberIds.filter((id) => !nextIds.includes(id))
-    setGroupMetaMap((prev) => ({
-      ...prev,
-      [selectedRoleId]: {
-        ownerRoleId: prev[selectedRoleId]?.ownerRoleId || 'me',
-        memberRoleIds: nextIds,
-        adminRoleIds: (groupEditingAdminRoleIds || []).filter((id) => nextIds.includes(id)),
-        notice: prev[selectedRoleId]?.notice || '',
-        pendingMemberRoleIds: (prev[selectedRoleId]?.pendingMemberRoleIds || []).filter((id) =>
-          !nextIds.includes(id),
-        ),
-      },
-    }))
-    for (const roleId of joined) {
-      const role = roles.find((item) => item.id === roleId)
-      if (role) appendGroupSystemMessage(selectedRoleId, `系统消息：${role.name} 已加入群聊。`)
-    }
-    for (const roleId of removed) {
-      const role = roles.find((item) => item.id === roleId)
-      if (role) appendGroupSystemMessage(selectedRoleId, `系统消息：${role.name} 已退出群聊。`)
-    }
-    setSuccessText('群成员已更新')
-  }
-
-  function handleRoleAvatarUpload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!selectedRoleId || !file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = String(reader.result || '')
-      if (!dataUrl) return
-      setRoleAvatarMap((prev) => ({ ...prev, [selectedRoleId]: dataUrl }))
-      setSuccessText('已更新头像（本地保存）')
-    }
-    reader.readAsDataURL(file)
-    event.target.value = ''
-  }
-
-  function saveFriendGroupConfig() {
-    const trimmed = newFriendGroupName.trim()
-    if (trimmed) {
-      setFriendGroupNames((prev) => Array.from(new Set([...prev, trimmed])))
-      setNewFriendGroupName('')
-      setSuccessText(`已新增分组：${trimmed}`)
-    }
-  }
-
-  function assignSelectedRoleGroup(groupName: string) {
-    if (!selectedRoleId || isGroupRole(selectedRole)) return
-    setFriendGroupMap((prev) => ({ ...prev, [selectedRoleId]: groupName }))
-    setSuccessText(`已移动到分组：${groupName}`)
-  }
-
-  function saveGroupGovernance() {
-    if (!selectedRoleId || !isGroupRole(selectedRole)) return
-    const memberSet = new Set(groupEditingMemberIds)
-    const adminRoleIds = groupEditingAdminRoleIds.filter((id) => memberSet.has(id))
-    setGroupMetaMap((prev) => ({
-      ...prev,
-      [selectedRoleId]: {
-        ownerRoleId: prev[selectedRoleId]?.ownerRoleId || 'me',
-        memberRoleIds: groupEditingMemberIds,
-        adminRoleIds,
-        notice: groupEditingNotice.trim(),
-        pendingMemberRoleIds: prev[selectedRoleId]?.pendingMemberRoleIds || [],
-      },
-    }))
-    appendGroupSystemMessage(selectedRoleId, '系统消息：群公告或管理权限已更新。')
-    setSuccessText('群治理设置已保存')
-  }
-
-  function submitInviteMembers() {
-    if (!selectedRoleId || !isGroupRole(selectedRole) || inviteCandidateRoleIds.length === 0) return
-    setGroupMetaMap((prev) => {
-      const source = prev[selectedRoleId] || {
-        ownerRoleId: 'me',
-        adminRoleIds: [],
-        memberRoleIds: [],
-        notice: '',
-        pendingMemberRoleIds: [],
-      }
-      const pendingMemberRoleIds = Array.from(
-        new Set([...source.pendingMemberRoleIds, ...inviteCandidateRoleIds]),
-      ).filter((id) => Boolean(id) && !source.memberRoleIds.includes(id))
-      return {
-        ...prev,
-        [selectedRoleId]: {
-          ...source,
-          pendingMemberRoleIds,
-        },
-      }
-    })
-    for (const roleId of inviteCandidateRoleIds) {
-      const role = roles.find((item) => item.id === roleId)
-      if (role) appendGroupSystemMessage(selectedRoleId, `系统消息：已发出入群邀请给 ${role.name}，等待审批。`)
-    }
-    setInviteCandidateRoleIds([])
-    setShowInviteMemberPanel(false)
-    setSuccessText('已发起入群邀请，等待审批')
-  }
-
-  function approvePendingMember(roleId: string) {
-    if (!selectedRoleId || !isGroupRole(selectedRole)) return
-    setGroupMetaMap((prev) => {
-      const source = prev[selectedRoleId]
-      if (!source) return prev
-      if (!source.pendingMemberRoleIds.includes(roleId)) return prev
-      return {
-        ...prev,
-        [selectedRoleId]: {
-          ...source,
-          pendingMemberRoleIds: source.pendingMemberRoleIds.filter((id) => id !== roleId),
-          memberRoleIds: Array.from(new Set([...source.memberRoleIds, roleId])),
-        },
-      }
-    })
-    const role = roles.find((item) => item.id === roleId)
-    if (role) appendGroupSystemMessage(selectedRoleId, `系统消息：${role.name} 审批通过，加入群聊。`)
-  }
-
-  function rejectPendingMember(roleId: string) {
-    if (!selectedRoleId || !isGroupRole(selectedRole)) return
-    setGroupMetaMap((prev) => {
-      const source = prev[selectedRoleId]
-      if (!source) return prev
-      return {
-        ...prev,
-        [selectedRoleId]: {
-          ...source,
-          pendingMemberRoleIds: source.pendingMemberRoleIds.filter((id) => id !== roleId),
-        },
-      }
-    })
-    const role = roles.find((item) => item.id === roleId)
-    if (role) appendGroupSystemMessage(selectedRoleId, `系统消息：${role.name} 的入群申请已被拒绝。`)
-  }
-
-  function updateSelectedRelationship(next: Partial<RelationshipMeta>) {
-    if (!selectedRoleId || isGroupRole(selectedRole)) return
-    setRelationshipMap((prev) => {
-      const source = prev[selectedRoleId] || { intimacy: 0, autoInteractEnabled: false }
-      return {
-        ...prev,
-        [selectedRoleId]: {
-          intimacy: Math.max(0, Math.min(100, Number(next.intimacy ?? source.intimacy))),
-          autoInteractEnabled:
-            next.autoInteractEnabled === undefined ? source.autoInteractEnabled : next.autoInteractEnabled,
-        },
-      }
-    })
   }
 
   function exportPersonaTemplates() {
@@ -2228,11 +1559,6 @@ export function ChatApp({
               </div>
             ) : null}
           </div>
-          <PixelInput
-            placeholder="搜索好友/群聊"
-            value={contactSearch}
-            onChange={(event) => setContactSearch(event.target.value)}
-          />
           {showAddFriendForm ? (
             <div className="worldbook-editor">
               <h4>添加好友</h4>
@@ -2327,89 +1653,15 @@ export function ChatApp({
               </div>
             </div>
           ) : null}
-          {filteredRoles.length === 0 ? (
-            <p className="text-pixel-text-muted">未找到匹配联系人</p>
-          ) : null}
-          {groupedFriendRoles.map((section) => (
-            <div key={`section-${section.name}`} className="grouped-role-section">
-              <p className="grouped-role-title">{section.name}</p>
-              {section.roles.map((role) => (
-                <div key={role.id} className={`role-card-shell ${selectedRoleId === role.id ? 'active' : ''}`}>
-                  <button className="role-card-main" onClick={() => openConversation(role)}>
-                    <span className="role-avatar">
-                      {getRoleAvatarUrl(role) ? (
-                        <img className="role-avatar-img" src={getRoleAvatarUrl(role)} alt={role.name} />
-                      ) : (
-                        role.avatar || role.name.slice(0, 1)
-                      )}
-                    </span>
-                    <span className="role-meta">
-                      <strong>{role.name}</strong>
-                      <small>{role.description || '暂无描述'}</small>
-                    </span>
-                  </button>
-                  <div className="role-card-actions">
-                    <PixelButton
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setSelectedRoleId(role.id)
-                        setTab('profile')
-                      }}
-                    >
-                      资料
-                    </PixelButton>
-                    <PixelButton size="sm" variant="ghost" onClick={() => void handleEditRole(role)}>
-                      编辑
-                    </PixelButton>
-                    <PixelButton size="sm" variant="danger" onClick={() => void handleDeleteRole(role)}>
-                      删除
-                    </PixelButton>
-                  </div>
-                </div>
-              ))}
-            </div>
+          {roles.map((role) => (
+            <button key={role.id} className={`role-card ${selectedRoleId === role.id ? 'active' : ''}`} onClick={() => openConversation(role)}>
+              <span className="role-avatar">{role.avatar || role.name.slice(0, 1)}</span>
+              <span className="role-meta">
+                <strong>{role.name}</strong>
+                <small>{role.description || '暂无描述'}</small>
+              </span>
+            </button>
           ))}
-          {filteredGroupRoles.length > 0 ? (
-            <div className="grouped-role-section">
-              <p className="grouped-role-title">群聊</p>
-              {filteredGroupRoles.map((role) => (
-                <div key={role.id} className={`role-card-shell ${selectedRoleId === role.id ? 'active' : ''}`}>
-                  <button className="role-card-main" onClick={() => openConversation(role)}>
-                    <span className="role-avatar">
-                      {getRoleAvatarUrl(role) ? (
-                        <img className="role-avatar-img" src={getRoleAvatarUrl(role)} alt={role.name} />
-                      ) : (
-                        role.avatar || role.name.slice(0, 1)
-                      )}
-                    </span>
-                    <span className="role-meta">
-                      <strong>
-                        {role.name}
-                        <em className="group-flag">群</em>
-                      </strong>
-                      <small>{role.description || '暂无描述'}</small>
-                    </span>
-                  </button>
-                  <div className="role-card-actions">
-                    <PixelButton
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setSelectedRoleId(role.id)
-                        setTab('group-settings')
-                      }}
-                    >
-                      群设置
-                    </PixelButton>
-                    <PixelButton size="sm" variant="danger" onClick={() => void handleDeleteRole(role)}>
-                      删除
-                    </PixelButton>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
         </div>
       ) : null}
 
@@ -2418,38 +1670,18 @@ export function ChatApp({
           {(chatViewMode === 'list' || !selectedRole) && (
             <div className="conversation-list">
               <div className="wechat-head">消息</div>
-              <div className="conversation-search-wrap">
-                <PixelInput
-                  placeholder="搜索消息/联系人"
-                  value={chatSearch}
-                  onChange={(event) => setChatSearch(event.target.value)}
-                />
-              </div>
-              {filteredSortedRoles.map((role) => {
+              {sortedRoles.map((role) => {
                 const sessionId = getSessionId(role.id)
                 const snapshot = sessionMap[sessionId] ?? defaultSessionState()
                 const last = snapshot.messages.at(-1)
                 const unread = unreadMap[role.id] ?? 0
                 const pinned = Boolean(pinnedRoleIds[role.id])
-                const isGroup = isGroupRole(role)
-                const memberCount = groupMetaMap[role.id]?.memberRoleIds.length ?? 0
                 return (
                   <button key={role.id} className={`conversation-item ${role.id === selectedRoleId ? 'active' : ''}`} onClick={() => openConversation(role)}>
-                    <span className="role-avatar">
-                      {getRoleAvatarUrl(role) ? (
-                        <img className="role-avatar-img" src={getRoleAvatarUrl(role)} alt={role.name} />
-                      ) : (
-                        role.avatar || role.name.slice(0, 1)
-                      )}
-                    </span>
+                    <span className="role-avatar">{role.avatar || role.name.slice(0, 1)}</span>
                     <span className="conversation-meta">
                       <strong className="conversation-title-row">
-                        <span>
-                          {role.name}
-                          {isGroup ? (
-                            <em className="group-flag">{memberCount > 0 ? `群·${memberCount}` : '群聊'}</em>
-                          ) : null}
-                        </span>
+                        <span>{role.name}</span>
                         {pinned ? <span className="pin-flag">置顶</span> : null}
                       </strong>
                       <small>{last?.content || '点击开始聊天'}</small>
@@ -2469,13 +1701,6 @@ export function ChatApp({
                 </PixelButton>
                 <span className="chat-header-title">
                   {selectedRole.name}
-                  {isGroupRole(selectedRole) ? (
-                    <small className="group-member-summary">
-                      {selectedGroupMembers.length > 0
-                        ? `成员：${selectedGroupMembers.map((item) => item.name).join('、')}`
-                        : '群聊（暂无成员）'}
-                    </small>
-                  ) : null}
                   {isSelectedRoleBlocked ? <em className="blocked-flag">黑名单</em> : null}
                 </span>
                 <div className="chat-header-actions">
@@ -2508,13 +1733,11 @@ export function ChatApp({
                 {activeSession.messages.map((message, index) => (
                   <div
                     key={`${message.role}-${index}-${message.timestamp}`}
-                    className={`message-row ${
-                      message.role === 'user' ? 'user' : message.role === 'system' ? 'system' : 'assistant'
-                    }`}
+                    className={`message-row ${message.role === 'user' ? 'user' : 'assistant'}`}
                   >
                     {!shouldHideAvatar(
                       chatSettings.hideAvatarMode,
-                      message.role === 'assistant' || message.role === 'system' ? 'assistant' : 'user',
+                      message.role === 'assistant' ? 'assistant' : 'user',
                     ) ? (
                       <span
                         className="bubble-avatar"
@@ -2523,24 +1746,14 @@ export function ChatApp({
                           borderWidth: `${localTheme.avatarFrameSize}px`,
                         }}
                       >
-                        <span>
-                          {message.role === 'user' ? (
-                            '我'
-                          ) : getRoleAvatarUrl(selectedRole) ? (
-                            <img className="role-avatar-img" src={getRoleAvatarUrl(selectedRole)} alt={selectedRole.name} />
-                          ) : (
-                            selectedRole.avatar || selectedRole.name.slice(0, 1)
-                          )}
-                        </span>
+                        <span>{message.role === 'user' ? '我' : selectedRole.avatar || selectedRole.name.slice(0, 1)}</span>
                         {localTheme.avatarPendant ? (
                           <i className="avatar-pendant">{localTheme.avatarPendant.slice(0, 2)}</i>
                         ) : null}
                       </span>
                     ) : null}
                     <article
-                      className={`bubble ${
-                        message.role === 'user' ? 'user' : message.role === 'system' ? 'system' : 'assistant'
-                      } bubble-with-style`}
+                      className={`bubble ${message.role === 'user' ? 'user' : 'assistant'} bubble-with-style`}
                       style={{
                         background:
                           message.role === 'user'
@@ -2576,9 +1789,7 @@ export function ChatApp({
                       onTouchEnd={clearLongPressTimer}
                       onTouchCancel={clearLongPressTimer}
                     >
-                      <p className="bubble-role">
-                        {message.role === 'system' ? '系统' : message.role === 'user' ? '我' : selectedRole.name}
-                      </p>
+                      <p className="bubble-role">{message.role === 'user' ? '我' : selectedRole.name}</p>
                       <p>{message.content}</p>
                       {chatSettings.showTimestamp && chatSettings.timestampStyle === 'bubble' ? (
                         <p className="bubble-extra">
@@ -2645,20 +1856,6 @@ export function ChatApp({
                 <p>角色世界书：{roleWorldBook?.name || '未绑定'}</p>
                 <p>会话世界书：{sessionWorldBook?.name || '未绑定'}</p>
                 <p>记忆互通：{isMemorySyncEnabled ? '开启' : '关闭'}</p>
-                {isGroupRole(selectedRole) ? (
-                  <>
-                    <p>群公告：{selectedGroupMeta?.notice || '暂无公告'}</p>
-                    <p>
-                      群管理员：
-                      {selectedGroupMeta?.adminRoleIds?.length
-                        ? selectedGroupMeta.adminRoleIds
-                            .map((id) => roles.find((role) => role.id === id)?.name || '')
-                            .filter(Boolean)
-                            .join('、')
-                        : '暂无'}
-                    </p>
-                  </>
-                ) : null}
               </div>
 
               {showPlusPanel ? (
@@ -2676,37 +1873,6 @@ export function ChatApp({
                       </option>
                     ))}
                   </select>
-                  {isGroupRole(selectedRole) ? (
-                    <div className="group-member-manage">
-                      <label className="text-pixel-text-muted">群成员管理（邀请/移出）</label>
-                      <div className="group-member-list">
-                        {roles
-                          .filter((role) => role.id !== selectedRoleId)
-                          .map((role) => {
-                            const checked = groupEditingMemberIds.includes(role.id)
-                            return (
-                              <label key={`manage-${role.id}`} className="group-member-item">
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() =>
-                                    setGroupEditingMemberIds((prev) =>
-                                      checked ? prev.filter((id) => id !== role.id) : [...prev, role.id],
-                                    )
-                                  }
-                                />
-                                <span>{role.name}</span>
-                              </label>
-                            )
-                          })}
-                      </div>
-                      <div className="chat-toolbar">
-                        <PixelButton size="sm" onClick={saveSelectedGroupMembers}>
-                          保存群成员
-                        </PixelButton>
-                      </div>
-                    </div>
-                  ) : null}
                   <PixelButton size="sm" variant="ghost" onClick={() => setShowPlusPanel(false)}>
                     收起
                   </PixelButton>
@@ -2775,222 +1941,6 @@ export function ChatApp({
                 <div className="blocked-tip">你已将对方加入黑名单，无法发送消息</div>
               ) : null}
             </div>
-          )}
-        </div>
-      ) : null}
-
-      {tab === 'profile' ? (
-        <div className="editor-panel">
-          {!selectedRole ? (
-            <div className="worldbook-editor">
-              <p className="text-pixel-text-muted">请先在通讯录中选择一个好友或群聊。</p>
-            </div>
-          ) : isGroupRole(selectedRole) ? (
-            <div className="worldbook-editor">
-              <h4>群资料</h4>
-              <p className="text-pixel-text-muted">群聊资料请前往「群设置」标签管理。</p>
-              <PixelButton size="sm" onClick={() => setTab('group-settings')}>
-                去群设置
-              </PixelButton>
-            </div>
-          ) : (
-            <>
-              <div className="worldbook-editor">
-                <h4>好友资料页</h4>
-                <p className="text-pixel-text-muted">名称：{selectedRole.name}</p>
-                <p className="text-pixel-text-muted">备注：{selectedRole.description || '无'}</p>
-                <div className="profile-avatar-box">
-                  {selectedRoleAvatar ? (
-                    <img className="profile-avatar-image" src={selectedRoleAvatar} alt={selectedRole.name} />
-                  ) : (
-                    <span className="role-avatar role-avatar-large">
-                      {selectedRole.avatar || selectedRole.name.slice(0, 1)}
-                    </span>
-                  )}
-                </div>
-                <label className="text-pixel-text-muted">上传头像（本地）</label>
-                <input
-                  className="pixel-input"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleRoleAvatarUpload}
-                />
-              </div>
-
-              <div className="worldbook-editor">
-                <h4>好友分组</h4>
-                <label className="text-pixel-text-muted">当前分组</label>
-                <select
-                  className="pixel-select"
-                  value={friendGroupMap[selectedRole.id] || '默认分组'}
-                  onChange={(event) => assignSelectedRoleGroup(event.target.value)}
-                >
-                  {Array.from(new Set(['默认分组', ...friendGroupNames])).map((groupName) => (
-                    <option key={groupName} value={groupName}>
-                      {groupName}
-                    </option>
-                  ))}
-                </select>
-                <label className="text-pixel-text-muted">新增分组</label>
-                <div className="chat-toolbar">
-                  <PixelInput
-                    placeholder="例如：家人/同事/闺蜜"
-                    value={newFriendGroupName}
-                    onChange={(event) => setNewFriendGroupName(event.target.value)}
-                  />
-                  <PixelButton size="sm" onClick={saveFriendGroupConfig}>
-                    新增
-                  </PixelButton>
-                </div>
-              </div>
-
-              <div className="worldbook-editor">
-                <h4>关系玩法</h4>
-                <label className="text-pixel-text-muted">
-                  亲密度（{Math.round(selectedRoleRelationship.intimacy)}）
-                </label>
-                <input
-                  className="pixel-input"
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={Math.round(selectedRoleRelationship.intimacy)}
-                  onChange={(event) =>
-                    updateSelectedRelationship({ intimacy: Number(event.target.value) || 0 })
-                  }
-                />
-                <label className="text-pixel-text-muted">自动互动联动</label>
-                <select
-                  className="pixel-select"
-                  value={selectedRoleRelationship.autoInteractEnabled ? '1' : '0'}
-                  onChange={(event) =>
-                    updateSelectedRelationship({ autoInteractEnabled: event.target.value === '1' })
-                  }
-                >
-                  <option value="1">开启</option>
-                  <option value="0">关闭</option>
-                </select>
-                <small className="text-pixel-text-muted">
-                  开启后，你与当前联系人聊天时，其他开启自动互动的好友会同步出现互动提醒。
-                </small>
-              </div>
-            </>
-          )}
-        </div>
-      ) : null}
-
-      {tab === 'group-settings' ? (
-        <div className="editor-panel">
-          {!selectedRole || !isGroupRole(selectedRole) ? (
-            <div className="worldbook-editor">
-              <p className="text-pixel-text-muted">请先选择一个群聊联系人，再进入群设置。</p>
-            </div>
-          ) : (
-            <>
-              <div className="worldbook-editor">
-                <h4>群治理设置</h4>
-                <p className="text-pixel-text-muted">群主：我</p>
-                <label className="text-pixel-text-muted">群公告</label>
-                <PixelInput
-                  as="textarea"
-                  rows={3}
-                  placeholder="输入群公告..."
-                  value={groupEditingNotice}
-                  onChange={(event) => setGroupEditingNotice(event.target.value)}
-                />
-                <label className="text-pixel-text-muted">群管理员</label>
-                <div className="group-member-list">
-                  {selectedGroupMembers.map((role) => {
-                    const checked = groupEditingAdminRoleIds.includes(role.id)
-                    return (
-                      <label key={`admin-${role.id}`} className="group-member-item">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() =>
-                            setGroupEditingAdminRoleIds((prev) =>
-                              checked ? prev.filter((id) => id !== role.id) : [...prev, role.id],
-                            )
-                          }
-                        />
-                        <span>{role.name}</span>
-                      </label>
-                    )
-                  })}
-                </div>
-                <div className="chat-toolbar">
-                  <PixelButton size="sm" onClick={saveGroupGovernance}>
-                    保存群治理
-                  </PixelButton>
-                </div>
-              </div>
-
-              <div className="worldbook-editor">
-                <h4>入群审批</h4>
-                {(selectedGroupMeta?.pendingMemberRoleIds || []).length === 0 ? (
-                  <p className="text-pixel-text-muted">暂无待审批成员</p>
-                ) : (
-                  <div className="group-member-list">
-                    {(selectedGroupMeta?.pendingMemberRoleIds || []).map((roleId) => {
-                      const role = roles.find((item) => item.id === roleId)
-                      if (!role) return null
-                      return (
-                        <div key={`pending-${role.id}`} className="group-pending-row">
-                          <span>{role.name}</span>
-                          <div className="chat-toolbar">
-                            <PixelButton size="sm" onClick={() => approvePendingMember(role.id)}>
-                              通过
-                            </PixelButton>
-                            <PixelButton size="sm" variant="danger" onClick={() => rejectPendingMember(role.id)}>
-                              拒绝
-                            </PixelButton>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className="worldbook-editor">
-                <h4>邀请入群</h4>
-                <PixelButton size="sm" onClick={() => setShowInviteMemberPanel((prev) => !prev)}>
-                  {showInviteMemberPanel ? '收起邀请面板' : '打开邀请面板'}
-                </PixelButton>
-                {showInviteMemberPanel ? (
-                  <div className="group-member-manage">
-                    <div className="group-member-list">
-                      {invitableRoleCandidates.length === 0 ? (
-                        <p className="text-pixel-text-muted">没有可邀请的好友</p>
-                      ) : (
-                        invitableRoleCandidates.map((role) => {
-                          const checked = inviteCandidateRoleIds.includes(role.id)
-                          return (
-                            <label key={`invite-${role.id}`} className="group-member-item">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() =>
-                                  setInviteCandidateRoleIds((prev) =>
-                                    checked ? prev.filter((id) => id !== role.id) : [...prev, role.id],
-                                  )
-                                }
-                              />
-                              <span>{role.name}</span>
-                            </label>
-                          )
-                        })
-                      )}
-                    </div>
-                    <div className="chat-toolbar">
-                      <PixelButton size="sm" onClick={submitInviteMembers} disabled={inviteCandidateRoleIds.length === 0}>
-                        提交邀请（进入审批）
-                      </PixelButton>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </>
           )}
         </div>
       ) : null}
