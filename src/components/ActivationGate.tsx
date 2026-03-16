@@ -121,7 +121,7 @@ export function ActivationGate({ children }: ActivationGateProps) {
               placeholder="例如：小狼"
             />
             <p className="text-pixel-text-muted activation-tip">
-              温馨提示：只需验证一次即可长期使用，激活码不区分大小写。
+              温馨提示：不分大小写
             </p>
             {deviceId ? (
               <p className="text-pixel-text-muted activation-device">设备 ID: {deviceId.slice(0, 12)}...</p>

@@ -100,3 +100,31 @@ npx netlify-cli deploy --prod --dir dist --functions netlify/functions
 - 前端静态资源由 Netlify 托管。
 - 后端接口由 `netlify/functions/api.js` 转发到 `services/api/src/server.js`。
 - Serverless 环境下数据文件写入临时目录（无持久化保证），适合演示与快速共享；正式生产建议接入持久化数据库。
+
+## 公网发布（GitHub Pages + 独立 API）
+
+如果前端放在 GitHub Pages（`https://<user>.github.io/<repo>/`），你必须额外部署后端 API，然后把 API 地址注入前端构建。
+
+### 1) 先部署后端 API（推荐 Netlify）
+
+- 在 Netlify 新建站点并连接本仓库（或 CLI 部署）。
+- 构建设置可使用仓库内 `netlify.toml` 默认值（发布目录 `dist`，函数目录 `netlify/functions`）。
+- 在 Netlify 环境变量中至少设置：
+  - `APP_SECRET`（>=32 位随机字符串）
+  - `DEFAULT_API_BASE_URL`（如 `https://api.openai.com/v1`）
+  - `DEFAULT_API_MODEL`（如 `gpt-4o-mini`）
+  - `ACTIVATION_CODE`（你的激活码）
+
+部署成功后，确认 `https://<your-netlify-site>.netlify.app/api/health` 可访问。
+
+### 2) 配置 GitHub 仓库变量
+
+在 GitHub 仓库 `Settings -> Secrets and variables -> Actions -> Variables` 新增：
+
+- `VITE_API_BASE_URL` = `https://<your-netlify-site>.netlify.app`
+
+### 3) 触发 Pages 发布
+
+推送到 `main`（或手动运行 `Deploy to GitHub Pages` workflow）后，前端会使用上面的 API 地址。
+
+> 注意：若未设置 `VITE_API_BASE_URL`，Pages workflow 会直接失败，避免发布一个必然 404 的版本。

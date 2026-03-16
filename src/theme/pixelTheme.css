@@ -1384,6 +1384,7 @@ body {
 }
 
 .activation-device {
+  display: none;
   margin: 0;
   opacity: 0.8;
   font-size: 0.72rem;
