@@ -193,6 +193,65 @@ function sanitizeLyricsUploadInput(input) {
   }
 }
 
+function createEmptyMusicState() {
+  return {
+    nowPlayingTrackId: '',
+    playlist: [],
+    uploadedSongs: [],
+    uploadedLyrics: [],
+    recentPlayed: [],
+  }
+}
+
+function normalizeDeviceId(raw) {
+  const value = String(raw || '').trim()
+  if (!value) return ''
+  if (!/^[a-zA-Z0-9._-]{4,120}$/.test(value)) return ''
+  return value
+}
+
+function resolveRequestDeviceId(req) {
+  const fromDeviceHeader = normalizeDeviceId(req.get('x-pixel-device-id'))
+  if (fromDeviceHeader) return fromDeviceHeader
+  const fromLegacyHeader = normalizeDeviceId(req.get('x-pixel-user-id'))
+  if (fromLegacyHeader) return fromLegacyHeader
+  return 'anonymous'
+}
+
+function getOrCreateDeviceMusicState(store, deviceId) {
+  const normalizedDeviceId = normalizeDeviceId(deviceId) || 'anonymous'
+  if (!store.musicDeviceBuckets || typeof store.musicDeviceBuckets !== 'object') {
+    store.musicDeviceBuckets = {}
+  }
+
+  let changed = false
+  if (!store.musicDeviceBuckets[normalizedDeviceId]) {
+    const shouldMigrateLegacy = !store.__musicMigratedToBuckets
+    if (shouldMigrateLegacy && store.music && typeof store.music === 'object') {
+      const legacy = store.music
+      store.musicDeviceBuckets[normalizedDeviceId] = {
+        nowPlayingTrackId: String(legacy.nowPlayingTrackId || ''),
+        playlist: Array.isArray(legacy.playlist) ? legacy.playlist : [],
+        uploadedSongs: Array.isArray(legacy.uploadedSongs) ? legacy.uploadedSongs : [],
+        uploadedLyrics: Array.isArray(legacy.uploadedLyrics) ? legacy.uploadedLyrics : [],
+        recentPlayed: Array.isArray(legacy.recentPlayed) ? legacy.recentPlayed : [],
+      }
+      store.__musicMigratedToBuckets = true
+    } else {
+      store.musicDeviceBuckets[normalizedDeviceId] = createEmptyMusicState()
+    }
+    changed = true
+  }
+
+  const music = store.musicDeviceBuckets[normalizedDeviceId]
+  music.nowPlayingTrackId = String(music.nowPlayingTrackId || '')
+  music.playlist = Array.isArray(music.playlist) ? music.playlist : []
+  music.uploadedSongs = Array.isArray(music.uploadedSongs) ? music.uploadedSongs : []
+  music.uploadedLyrics = Array.isArray(music.uploadedLyrics) ? music.uploadedLyrics : []
+  music.recentPlayed = Array.isArray(music.recentPlayed) ? music.recentPlayed : []
+  return { music, changed, normalizedDeviceId }
+}
+
 function getTrackNameFromFileName(fileName) {
   const normalized = String(fileName || '').trim()
   if (!normalized) return '未命名歌曲'
@@ -851,14 +910,11 @@ app.post('/api/forum/posts/:postId/replies', (req, res) => {
   }
 })
 
-app.get('/api/music/state', (_req, res) => {
+app.get('/api/music/state', (req, res) => {
   const store = loadStore()
-  const music = store.music || {
-    nowPlayingTrackId: '',
-    playlist: [],
-    uploadedSongs: [],
-    uploadedLyrics: [],
-    recentPlayed: [],
+  const { music, changed } = getOrCreateDeviceMusicState(store, resolveRequestDeviceId(req))
+  if (changed) {
+    saveStore(store)
   }
   return res.json(buildPublicMusicState(music))
 })
@@ -866,18 +922,12 @@ app.get('/api/music/state', (_req, res) => {
 app.post('/api/music/tracks', (req, res) => {
   try {
     const store = loadStore()
+    const { music: scopedMusic } = getOrCreateDeviceMusicState(store, resolveRequestDeviceId(req))
     const input = sanitizeMusicTrackInput(req.body)
     if (!input.name) {
       return sendError(req, res, 400, 'invalid_request', '歌曲名称必填')
     }
-    store.music = store.music || {
-      nowPlayingTrackId: '',
-      playlist: [],
-      uploadedSongs: [],
-      uploadedLyrics: [],
-      recentPlayed: [],
-    }
-    store.music.playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
+    scopedMusic.playlist = Array.isArray(scopedMusic.playlist) ? scopedMusic.playlist : []
     const track = {
       id: `track-${randomUUID()}`,
       name: input.name,
@@ -885,13 +935,13 @@ app.post('/api/music/tracks', (req, res) => {
       durationSec: input.durationSec,
       addedAt: new Date().toISOString(),
     }
-    store.music.playlist.push(track)
-    if (!store.music.nowPlayingTrackId) {
-      store.music.nowPlayingTrackId = track.id
-      recordRecentPlay(store.music, track.id)
+    scopedMusic.playlist.push(track)
+    if (!scopedMusic.nowPlayingTrackId) {
+      scopedMusic.nowPlayingTrackId = track.id
+      recordRecentPlay(scopedMusic, track.id)
     }
     saveStore(store)
-    return res.status(201).json({ ok: true, music: buildPublicMusicState(store.music) })
+    return res.status(201).json({ ok: true, music: buildPublicMusicState(scopedMusic) })
   } catch (error) {
     logError('music:add-track', error, getRequestId(req))
     return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '添加歌曲失败')
@@ -901,6 +951,7 @@ app.post('/api/music/tracks', (req, res) => {
 app.post('/api/music/upload/song', (req, res) => {
   try {
     const store = loadStore()
+    const { music: scopedMusic } = getOrCreateDeviceMusicState(store, resolveRequestDeviceId(req))
     const input = sanitizeSongUploadInput(req.body)
     if (!input.fileName || !input.dataUrl) {
       return sendError(req, res, 400, 'invalid_request', 'fileName/dataUrl 必填')
@@ -908,15 +959,8 @@ app.post('/api/music/upload/song', (req, res) => {
     if (!input.dataUrl.startsWith('data:')) {
       return sendError(req, res, 400, 'invalid_request', '歌曲文件格式无效')
     }
-    store.music = store.music || {
-      nowPlayingTrackId: '',
-      playlist: [],
-      uploadedSongs: [],
-      uploadedLyrics: [],
-      recentPlayed: [],
-    }
-    store.music.playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
-    store.music.uploadedSongs = Array.isArray(store.music.uploadedSongs) ? store.music.uploadedSongs : []
+    scopedMusic.playlist = Array.isArray(scopedMusic.playlist) ? scopedMusic.playlist : []
+    scopedMusic.uploadedSongs = Array.isArray(scopedMusic.uploadedSongs) ? scopedMusic.uploadedSongs : []
     const track = {
       id: `track-${randomUUID()}`,
       name: getTrackNameFromFileName(input.fileName),
@@ -924,10 +968,10 @@ app.post('/api/music/upload/song', (req, res) => {
       durationSec: 0,
       addedAt: new Date().toISOString(),
     }
-    store.music.playlist.push(track)
-    if (!store.music.nowPlayingTrackId) {
-      store.music.nowPlayingTrackId = track.id
-      recordRecentPlay(store.music, track.id)
+    scopedMusic.playlist.push(track)
+    if (!scopedMusic.nowPlayingTrackId) {
+      scopedMusic.nowPlayingTrackId = track.id
+      recordRecentPlay(scopedMusic, track.id)
     }
     const uploadedSong = {
       id: `song-${randomUUID()}`,
@@ -938,13 +982,13 @@ app.post('/api/music/upload/song', (req, res) => {
       trackId: track.id,
       dataUrl: input.dataUrl,
     }
-    store.music.uploadedSongs.unshift(uploadedSong)
+    scopedMusic.uploadedSongs.unshift(uploadedSong)
     saveStore(store)
     return res.status(201).json({
       ok: true,
       trackId: track.id,
       uploadedSongId: uploadedSong.id,
-      music: buildPublicMusicState(store.music),
+      music: buildPublicMusicState(scopedMusic),
     })
   } catch (error) {
     logError('music:upload-song', error, getRequestId(req))
@@ -955,23 +999,17 @@ app.post('/api/music/upload/song', (req, res) => {
 app.post('/api/music/upload/lyrics', (req, res) => {
   try {
     const store = loadStore()
+    const { music: scopedMusic } = getOrCreateDeviceMusicState(store, resolveRequestDeviceId(req))
     const input = sanitizeLyricsUploadInput(req.body)
     if (!input.fileName || !input.content.trim()) {
       return sendError(req, res, 400, 'invalid_request', 'fileName/content 必填')
     }
-    store.music = store.music || {
-      nowPlayingTrackId: '',
-      playlist: [],
-      uploadedSongs: [],
-      uploadedLyrics: [],
-      recentPlayed: [],
-    }
-    store.music.playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
-    store.music.uploadedLyrics = Array.isArray(store.music.uploadedLyrics) ? store.music.uploadedLyrics : []
+    scopedMusic.playlist = Array.isArray(scopedMusic.playlist) ? scopedMusic.playlist : []
+    scopedMusic.uploadedLyrics = Array.isArray(scopedMusic.uploadedLyrics) ? scopedMusic.uploadedLyrics : []
     const linkedTrackId =
-      input.linkedTrackId && store.music.playlist.find((item) => item.id === input.linkedTrackId)
+      input.linkedTrackId && scopedMusic.playlist.find((item) => item.id === input.linkedTrackId)
         ? input.linkedTrackId
-        : store.music.nowPlayingTrackId || store.music.playlist[0]?.id || ''
+        : scopedMusic.nowPlayingTrackId || scopedMusic.playlist[0]?.id || ''
     const uploadedLyrics = {
       id: `lyrics-${randomUUID()}`,
       fileName: input.fileName,
@@ -980,12 +1018,12 @@ app.post('/api/music/upload/lyrics', (req, res) => {
       linkedTrackId,
       content: input.content,
     }
-    store.music.uploadedLyrics.unshift(uploadedLyrics)
+    scopedMusic.uploadedLyrics.unshift(uploadedLyrics)
     saveStore(store)
     return res.status(201).json({
       ok: true,
       uploadedLyricsId: uploadedLyrics.id,
-      music: buildPublicMusicState(store.music),
+      music: buildPublicMusicState(scopedMusic),
     })
   } catch (error) {
     logError('music:upload-lyrics', error, getRequestId(req))
@@ -996,31 +1034,25 @@ app.post('/api/music/upload/lyrics', (req, res) => {
 app.put('/api/music/tracks/:trackId', (req, res) => {
   try {
     const store = loadStore()
+    const { music: scopedMusic } = getOrCreateDeviceMusicState(store, resolveRequestDeviceId(req))
     const trackId = String(req.params.trackId || '').trim()
     const name = String(req.body?.name || '').trim()
     if (!trackId || !name) {
       return sendError(req, res, 400, 'invalid_request', 'trackId/name 必填')
     }
-    store.music = store.music || {
-      nowPlayingTrackId: '',
-      playlist: [],
-      uploadedSongs: [],
-      uploadedLyrics: [],
-      recentPlayed: [],
-    }
-    store.music.playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
-    store.music.uploadedSongs = Array.isArray(store.music.uploadedSongs) ? store.music.uploadedSongs : []
-    const track = store.music.playlist.find((item) => item.id === trackId)
+    scopedMusic.playlist = Array.isArray(scopedMusic.playlist) ? scopedMusic.playlist : []
+    scopedMusic.uploadedSongs = Array.isArray(scopedMusic.uploadedSongs) ? scopedMusic.uploadedSongs : []
+    const track = scopedMusic.playlist.find((item) => item.id === trackId)
     if (!track) {
       return sendError(req, res, 404, 'not_found', '歌曲不存在')
     }
     track.name = name
-    const song = store.music.uploadedSongs.find((item) => item.trackId === trackId)
+    const song = scopedMusic.uploadedSongs.find((item) => item.trackId === trackId)
     if (song) {
       song.fileName = name
     }
     saveStore(store)
-    return res.json({ ok: true, music: buildPublicMusicState(store.music) })
+    return res.json({ ok: true, music: buildPublicMusicState(scopedMusic) })
   } catch (error) {
     logError('music:rename-track', error, getRequestId(req))
     return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '改歌名失败')
@@ -1030,33 +1062,28 @@ app.put('/api/music/tracks/:trackId', (req, res) => {
 app.delete('/api/music/tracks/:trackId', (req, res) => {
   try {
     const store = loadStore()
-    store.music = store.music || {
-      nowPlayingTrackId: '',
-      playlist: [],
-      uploadedSongs: [],
-      uploadedLyrics: [],
-      recentPlayed: [],
-    }
-    const playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
+    const { music: scopedMusic } = getOrCreateDeviceMusicState(store, resolveRequestDeviceId(req))
+    const trackId = String(req.params.trackId || '').trim()
+    const playlist = Array.isArray(scopedMusic.playlist) ? scopedMusic.playlist : []
     const nextPlaylist = playlist.filter((item) => item.id !== req.params.trackId)
-    store.music.playlist = nextPlaylist
-    store.music.uploadedSongs = Array.isArray(store.music.uploadedSongs)
-      ? store.music.uploadedSongs.filter((item) => item.trackId !== req.params.trackId)
+    scopedMusic.playlist = nextPlaylist
+    scopedMusic.uploadedSongs = Array.isArray(scopedMusic.uploadedSongs)
+      ? scopedMusic.uploadedSongs.filter((item) => item.trackId !== trackId)
       : []
-    store.music.uploadedLyrics = Array.isArray(store.music.uploadedLyrics)
-      ? store.music.uploadedLyrics.filter((item) => item.linkedTrackId !== req.params.trackId)
+    scopedMusic.uploadedLyrics = Array.isArray(scopedMusic.uploadedLyrics)
+      ? scopedMusic.uploadedLyrics.filter((item) => item.linkedTrackId !== trackId)
       : []
-    store.music.recentPlayed = Array.isArray(store.music.recentPlayed)
-      ? store.music.recentPlayed.filter((item) => item.trackId !== req.params.trackId)
+    scopedMusic.recentPlayed = Array.isArray(scopedMusic.recentPlayed)
+      ? scopedMusic.recentPlayed.filter((item) => item.trackId !== trackId)
       : []
-    if (store.music.nowPlayingTrackId === req.params.trackId) {
-      store.music.nowPlayingTrackId = nextPlaylist[0]?.id || ''
-      if (store.music.nowPlayingTrackId) {
-        recordRecentPlay(store.music, store.music.nowPlayingTrackId)
+    if (scopedMusic.nowPlayingTrackId === trackId) {
+      scopedMusic.nowPlayingTrackId = nextPlaylist[0]?.id || ''
+      if (scopedMusic.nowPlayingTrackId) {
+        recordRecentPlay(scopedMusic, scopedMusic.nowPlayingTrackId)
       }
     }
     saveStore(store)
-    return res.json({ ok: true, music: buildPublicMusicState(store.music) })
+    return res.json({ ok: true, music: buildPublicMusicState(scopedMusic) })
   } catch (error) {
     logError('music:remove-track', error, getRequestId(req))
     return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '删除歌曲失败')
@@ -1066,22 +1093,16 @@ app.delete('/api/music/tracks/:trackId', (req, res) => {
 app.put('/api/music/now-playing', (req, res) => {
   try {
     const store = loadStore()
+    const { music: scopedMusic } = getOrCreateDeviceMusicState(store, resolveRequestDeviceId(req))
     const trackId = String(req.body?.trackId || '').trim()
-    store.music = store.music || {
-      nowPlayingTrackId: '',
-      playlist: [],
-      uploadedSongs: [],
-      uploadedLyrics: [],
-      recentPlayed: [],
-    }
-    const playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
+    const playlist = Array.isArray(scopedMusic.playlist) ? scopedMusic.playlist : []
     if (trackId && !playlist.find((item) => item.id === trackId)) {
       return sendError(req, res, 400, 'invalid_request', '歌曲不存在')
     }
-    store.music.nowPlayingTrackId = trackId
-    recordRecentPlay(store.music, trackId)
+    scopedMusic.nowPlayingTrackId = trackId
+    recordRecentPlay(scopedMusic, trackId)
     saveStore(store)
-    return res.json({ ok: true, music: buildPublicMusicState(store.music) })
+    return res.json({ ok: true, music: buildPublicMusicState(scopedMusic) })
   } catch (error) {
     logError('music:set-now-playing', error, getRequestId(req))
     return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '更新播放状态失败')

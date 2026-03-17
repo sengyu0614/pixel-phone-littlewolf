@@ -17,6 +17,27 @@ import { UnifiedApiError } from './types'
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '' : 'http://localhost:3030')
+const DEVICE_ID_KEY = 'pixel-license-device-id'
+
+function getOrCreateDeviceId() {
+  if (typeof window === 'undefined') return 'anonymous'
+  try {
+    const current = window.localStorage.getItem(DEVICE_ID_KEY)
+    if (current) return current
+    const generated =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `device-${Date.now()}`
+    window.localStorage.setItem(DEVICE_ID_KEY, generated)
+    return generated
+  } catch {
+    return 'anonymous'
+  }
+}
+
+export function getApiBaseUrl() {
+  return API_BASE || window.location.origin
+}
 
 type RequestOptions = RequestInit & {
   timeoutMs?: number
@@ -31,6 +52,7 @@ async function request<T>(path: string, options: RequestOptions = {}) {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        'x-pixel-device-id': getOrCreateDeviceId(),
         ...(options.headers ?? {}),
       },
       signal: controller.signal,
@@ -56,7 +78,7 @@ async function request<T>(path: string, options: RequestOptions = {}) {
       throw new UnifiedApiError(
         'network_unreachable',
         0,
-        `无法连接到 API 服务（${base}）。请确认后端已启动且地址配置正确。`,
+        `无法连接到 API 服务（${base}${path}）。请确认后端已启动且地址配置正确。`,
       )
     }
     throw error
@@ -324,5 +346,12 @@ export async function uploadMusicLyricsFile(input: {
     method: 'POST',
     body: JSON.stringify(input),
     timeoutMs: 120000,
+  })
+}
+
+export async function checkApiHealth(timeoutMs = 8000) {
+  return request<{ ok: boolean; ts?: string }>('/api/health', {
+    method: 'GET',
+    timeoutMs,
   })
 }
