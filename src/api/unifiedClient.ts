@@ -71,14 +71,20 @@ async function request<T>(path: string, options: RequestOptions = {}) {
     return (await response.json()) as T
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new UnifiedApiError('timeout', 408, '请求超时，请稍后重试')
+      const timeoutMessage = path.startsWith('/api/music/upload/')
+        ? '上传超时，可能是文件过大或网络较慢，请压缩文件后重试'
+        : '请求超时，请稍后重试'
+      throw new UnifiedApiError('timeout', 408, timeoutMessage)
     }
     if (error instanceof TypeError) {
       const base = API_BASE || window.location.origin
+      const networkMessage = path.startsWith('/api/music/upload/')
+        ? `上传请求未完成（${base}${path}），可能是文件过大、上传超时或网络中断，请稍后重试`
+        : `无法连接到 API 服务（${base}${path}）。请确认后端已启动且地址配置正确。`
       throw new UnifiedApiError(
         'network_unreachable',
         0,
-        `无法连接到 API 服务（${base}${path}）。请确认后端已启动且地址配置正确。`,
+        networkMessage,
       )
     }
     throw error

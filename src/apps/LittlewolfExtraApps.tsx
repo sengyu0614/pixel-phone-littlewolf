@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import {
+  checkApiHealth,
   fetchMusicState,
+  getApiBaseUrl,
   removeMusicTrack,
   renameMusicTrack,
   setNowPlayingTrack as setMusicNowPlayingTrack,
@@ -54,6 +56,15 @@ function formatPlayTimeLabel(iso: string) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+const MAX_SONG_UPLOAD_MB = 12
+const MAX_LYRICS_UPLOAD_MB = 2
+const MAX_SONG_UPLOAD_BYTES = MAX_SONG_UPLOAD_MB * 1024 * 1024
+const MAX_LYRICS_UPLOAD_BYTES = MAX_LYRICS_UPLOAD_MB * 1024 * 1024
+
+function formatSizeMb(size: number) {
+  return (Math.max(0, size) / 1024 / 1024).toFixed(2)
 }
 
 export function RoleForumApp(props: AppRuntimeProps) {
@@ -119,6 +130,8 @@ export function RoleMusicApp(props: AppRuntimeProps) {
   const [sleepMinutes, setSleepMinutes] = useState(0)
   const [errorText, setErrorText] = useState('')
   const [successText, setSuccessText] = useState('')
+  const [apiCheckText, setApiCheckText] = useState('')
+  const [isCheckingApi, setIsCheckingApi] = useState(false)
   const songUploadRef = useRef<HTMLInputElement | null>(null)
   const lyricsUploadRef = useRef<HTMLInputElement | null>(null)
   const addSongEntryRef = useRef<HTMLDivElement | null>(null)
@@ -412,10 +425,35 @@ export function RoleMusicApp(props: AppRuntimeProps) {
     return uploadedSongs.find((item) => item.trackId === nowPlayingTrackId) || uploadedSongs[0]
   }
 
+  async function handleApiSelfCheck() {
+    setIsCheckingApi(true)
+    setApiCheckText('')
+    setErrorText('')
+    const startAt = performance.now()
+    try {
+      await checkApiHealth(8000)
+      const elapsedMs = Math.max(1, Math.round(performance.now() - startAt))
+      setApiCheckText(`API 连通正常（约 ${elapsedMs}ms）`)
+      setSuccessText('连通性自检通过')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '连通性自检失败'
+      setApiCheckText(`API 连通失败：${message}`)
+      setErrorText(message)
+    } finally {
+      setIsCheckingApi(false)
+    }
+  }
+
   async function handleSongFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
+    if (file.size > MAX_SONG_UPLOAD_BYTES) {
+      setErrorText(
+        `歌曲文件过大（${formatSizeMb(file.size)}MB），当前上限 ${MAX_SONG_UPLOAD_MB}MB。请压缩后再上传，避免超时。`,
+      )
+      return
+    }
     setBusy(true)
     setErrorText('')
     setSuccessText('')
@@ -449,6 +487,12 @@ export function RoleMusicApp(props: AppRuntimeProps) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
+    if (file.size > MAX_LYRICS_UPLOAD_BYTES) {
+      setErrorText(
+        `歌词文件过大（${formatSizeMb(file.size)}MB），当前上限 ${MAX_LYRICS_UPLOAD_MB}MB。请精简文件后再上传。`,
+      )
+      return
+    }
     setBusy(true)
     setErrorText('')
     setSuccessText('')
@@ -743,6 +787,18 @@ export function RoleMusicApp(props: AppRuntimeProps) {
               刷新
             </PixelButton>
           </div>
+        </section>
+        <section className="worldbook-item">
+          <div className="worldbook-item-head">
+            <strong>API 连通性自检</strong>
+          </div>
+          <p className="text-pixel-text-muted">当前 API：{getApiBaseUrl()}</p>
+          <div className="chat-toolbar">
+            <PixelButton size="sm" variant="ghost" onClick={() => void handleApiSelfCheck()} disabled={isCheckingApi}>
+              {isCheckingApi ? '检测中...' : '检测 API 连通性'}
+            </PixelButton>
+          </div>
+          {apiCheckText ? <p className="text-pixel-text-muted">{apiCheckText}</p> : null}
         </section>
         {errorText ? <p className="form-error">{errorText}</p> : null}
         {successText ? <p className="form-success">{successText}</p> : null}
