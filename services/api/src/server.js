@@ -23,7 +23,7 @@ const defaultApiModel = String(process.env.DEFAULT_API_MODEL || '').trim()
 const defaultActivationCode = String(process.env.ACTIVATION_CODE || 'LITTLEWOLF2026').trim().toUpperCase()
 
 app.use(cors())
-app.use(express.json({ limit: '1mb' }))
+app.use(express.json({ limit: '50mb' }))
 app.use((req, res, next) => {
   const incomingRequestId = String(req.headers['x-request-id'] || '').trim()
   const requestId = incomingRequestId || randomUUID()
@@ -128,6 +128,114 @@ function sanitizeAutomationSettings(input) {
     autoSummaryEnabled: value.autoSummaryEnabled === undefined ? true : Boolean(value.autoSummaryEnabled),
     autoSummaryRounds: rounds,
     lastAutoMessageAt,
+  }
+}
+
+function sanitizeMomentInput(input) {
+  const value = input || {}
+  const images = Array.isArray(value.images)
+    ? value.images.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 9)
+    : []
+  return {
+    roleId: String(value.roleId || '').trim(),
+    content: String(value.content || '').trim(),
+    images,
+  }
+}
+
+function normalizeForumSection(raw) {
+  const section = String(raw || '').trim()
+  if (section === 'follow' || section === 'gossip') return section
+  return 'recommend'
+}
+
+function sanitizeForumInput(input) {
+  const value = input || {}
+  const tags = Array.isArray(value.tags)
+    ? value.tags.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 6)
+    : []
+  return {
+    roleId: String(value.roleId || '').trim(),
+    title: String(value.title || '').trim(),
+    content: String(value.content || '').trim(),
+    section: normalizeForumSection(value.section),
+    tags,
+  }
+}
+
+function sanitizeMusicTrackInput(input) {
+  const value = input || {}
+  return {
+    name: String(value.name || '').trim(),
+    artist: String(value.artist || '').trim() || '未知歌手',
+    durationSec: Math.max(0, Math.min(36000, Number(value.durationSec) || 0)),
+  }
+}
+
+function sanitizeSongUploadInput(input) {
+  const value = input || {}
+  const dataUrl = String(value.dataUrl || '').trim()
+  return {
+    fileName: String(value.fileName || '').trim(),
+    mimeType: String(value.mimeType || '').trim() || 'audio/mpeg',
+    size: Math.max(0, Number(value.size) || 0),
+    dataUrl,
+  }
+}
+
+function sanitizeLyricsUploadInput(input) {
+  const value = input || {}
+  return {
+    fileName: String(value.fileName || '').trim(),
+    size: Math.max(0, Number(value.size) || 0),
+    content: String(value.content || ''),
+    linkedTrackId: String(value.linkedTrackId || '').trim(),
+  }
+}
+
+function getTrackNameFromFileName(fileName) {
+  const normalized = String(fileName || '').trim()
+  if (!normalized) return '未命名歌曲'
+  const noExt = normalized.replace(/\.[^.]+$/, '')
+  return noExt || '未命名歌曲'
+}
+
+function recordRecentPlay(music, trackId) {
+  const safeTrackId = String(trackId || '').trim()
+  if (!safeTrackId) return
+  const now = new Date().toISOString()
+  const history = Array.isArray(music.recentPlayed) ? music.recentPlayed : []
+  const next = [{ trackId: safeTrackId, playedAt: now }, ...history.filter((item) => item.trackId !== safeTrackId)]
+  music.recentPlayed = next.slice(0, 30)
+}
+
+function buildPublicMusicState(music) {
+  const safeMusic = music || {}
+  return {
+    nowPlayingTrackId: String(safeMusic.nowPlayingTrackId || ''),
+    playlist: Array.isArray(safeMusic.playlist) ? safeMusic.playlist : [],
+    uploadedSongs: Array.isArray(safeMusic.uploadedSongs)
+      ? safeMusic.uploadedSongs.map((item) => ({
+          id: String(item?.id || ''),
+          fileName: String(item?.fileName || ''),
+          mimeType: String(item?.mimeType || ''),
+          size: Math.max(0, Number(item?.size) || 0),
+          uploadedAt: String(item?.uploadedAt || ''),
+          trackId: String(item?.trackId || ''),
+          dataUrl: String(item?.dataUrl || ''),
+        }))
+      : [],
+    uploadedLyrics: Array.isArray(safeMusic.uploadedLyrics)
+      ? safeMusic.uploadedLyrics.map(({ content, ...rest }) => rest)
+      : [],
+    recentPlayed: Array.isArray(safeMusic.recentPlayed)
+      ? safeMusic.recentPlayed
+          .map((item) => ({
+            trackId: String(item?.trackId || ''),
+            playedAt: String(item?.playedAt || ''),
+          }))
+          .filter((item) => item.trackId)
+      : [],
   }
 }
 
@@ -551,6 +659,433 @@ app.get('/api/export', (_req, res) => {
 app.get('/api/sessions', (_req, res) => {
   const store = loadStore()
   res.json({ conversations: store.conversations || {} })
+})
+
+app.get('/api/moments/posts', (_req, res) => {
+  const store = loadStore()
+  const posts = Array.isArray(store.moments?.posts) ? store.moments.posts : []
+  res.json({ posts })
+})
+
+app.post('/api/moments/posts', (req, res) => {
+  try {
+    const store = loadStore()
+    const input = sanitizeMomentInput(req.body)
+    if (!input.roleId || !input.content) {
+      return sendError(req, res, 400, 'invalid_request', 'roleId/content 必填')
+    }
+    const role = store.roles.find((item) => item.id === input.roleId)
+    if (!role) {
+      return sendError(req, res, 404, 'not_found', '角色不存在')
+    }
+    store.moments = store.moments || { posts: [] }
+    const post = {
+      id: `moment-${randomUUID()}`,
+      roleId: role.id,
+      roleName: role.name,
+      content: input.content,
+      images: input.images,
+      likes: 0,
+      likedByMe: false,
+      createdAt: new Date().toISOString(),
+      comments: [],
+    }
+    store.moments.posts.unshift(post)
+    saveStore(store)
+    return res.status(201).json({ post })
+  } catch (error) {
+    logError('moments:create-post', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '发布动态失败')
+  }
+})
+
+app.post('/api/moments/posts/:postId/like', (req, res) => {
+  try {
+    const store = loadStore()
+    const posts = Array.isArray(store.moments?.posts) ? store.moments.posts : []
+    const post = posts.find((item) => item.id === req.params.postId)
+    if (!post) {
+      return sendError(req, res, 404, 'not_found', '动态不存在')
+    }
+    const likedByMe = Boolean(req.body?.likedByMe)
+    if (likedByMe !== Boolean(post.likedByMe)) {
+      post.likes = Math.max(0, Number(post.likes || 0) + (likedByMe ? 1 : -1))
+      post.likedByMe = likedByMe
+      saveStore(store)
+    }
+    return res.json({ ok: true, post })
+  } catch (error) {
+    logError('moments:like-post', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '点赞失败')
+  }
+})
+
+app.post('/api/moments/posts/:postId/comments', (req, res) => {
+  try {
+    const store = loadStore()
+    const posts = Array.isArray(store.moments?.posts) ? store.moments.posts : []
+    const post = posts.find((item) => item.id === req.params.postId)
+    if (!post) {
+      return sendError(req, res, 404, 'not_found', '动态不存在')
+    }
+    const roleId = String(req.body?.roleId || '').trim()
+    const content = String(req.body?.content || '').trim()
+    if (!roleId || !content) {
+      return sendError(req, res, 400, 'invalid_request', 'roleId/content 必填')
+    }
+    const role = store.roles.find((item) => item.id === roleId)
+    if (!role) {
+      return sendError(req, res, 404, 'not_found', '角色不存在')
+    }
+    post.comments = Array.isArray(post.comments) ? post.comments : []
+    post.comments.push({
+      id: `moment-comment-${randomUUID()}`,
+      roleId: role.id,
+      roleName: role.name,
+      content,
+      createdAt: new Date().toISOString(),
+    })
+    saveStore(store)
+    return res.json({ ok: true, post })
+  } catch (error) {
+    logError('moments:comment-post', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '评论失败')
+  }
+})
+
+app.get('/api/forum/posts', (req, res) => {
+  const store = loadStore()
+  const section = String(req.query?.section || '').trim()
+  const posts = Array.isArray(store.forum?.posts) ? store.forum.posts : []
+  if (!section) {
+    return res.json({ posts })
+  }
+  return res.json({ posts: posts.filter((item) => item.section === normalizeForumSection(section)) })
+})
+
+app.post('/api/forum/posts', (req, res) => {
+  try {
+    const store = loadStore()
+    const input = sanitizeForumInput(req.body)
+    if (!input.roleId || !input.title || !input.content) {
+      return sendError(req, res, 400, 'invalid_request', 'roleId/title/content 必填')
+    }
+    const role = store.roles.find((item) => item.id === input.roleId)
+    if (!role) {
+      return sendError(req, res, 404, 'not_found', '角色不存在')
+    }
+    store.forum = store.forum || { posts: [] }
+    const post = {
+      id: `forum-${randomUUID()}`,
+      roleId: role.id,
+      roleName: role.name,
+      title: input.title,
+      content: input.content,
+      section: input.section,
+      tags: input.tags,
+      likes: 0,
+      likedByMe: false,
+      createdAt: new Date().toISOString(),
+      replies: [],
+    }
+    store.forum.posts.unshift(post)
+    saveStore(store)
+    return res.status(201).json({ post })
+  } catch (error) {
+    logError('forum:create-post', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '发布帖子失败')
+  }
+})
+
+app.post('/api/forum/posts/:postId/like', (req, res) => {
+  try {
+    const store = loadStore()
+    const posts = Array.isArray(store.forum?.posts) ? store.forum.posts : []
+    const post = posts.find((item) => item.id === req.params.postId)
+    if (!post) {
+      return sendError(req, res, 404, 'not_found', '帖子不存在')
+    }
+    const likedByMe = Boolean(req.body?.likedByMe)
+    if (likedByMe !== Boolean(post.likedByMe)) {
+      post.likes = Math.max(0, Number(post.likes || 0) + (likedByMe ? 1 : -1))
+      post.likedByMe = likedByMe
+      saveStore(store)
+    }
+    return res.json({ ok: true, post })
+  } catch (error) {
+    logError('forum:like-post', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '点赞失败')
+  }
+})
+
+app.post('/api/forum/posts/:postId/replies', (req, res) => {
+  try {
+    const store = loadStore()
+    const posts = Array.isArray(store.forum?.posts) ? store.forum.posts : []
+    const post = posts.find((item) => item.id === req.params.postId)
+    if (!post) {
+      return sendError(req, res, 404, 'not_found', '帖子不存在')
+    }
+    const roleId = String(req.body?.roleId || '').trim()
+    const content = String(req.body?.content || '').trim()
+    if (!roleId || !content) {
+      return sendError(req, res, 400, 'invalid_request', 'roleId/content 必填')
+    }
+    const role = store.roles.find((item) => item.id === roleId)
+    if (!role) {
+      return sendError(req, res, 404, 'not_found', '角色不存在')
+    }
+    post.replies = Array.isArray(post.replies) ? post.replies : []
+    post.replies.push({
+      id: `forum-reply-${randomUUID()}`,
+      roleId: role.id,
+      roleName: role.name,
+      content,
+      createdAt: new Date().toISOString(),
+    })
+    saveStore(store)
+    return res.json({ ok: true, post })
+  } catch (error) {
+    logError('forum:reply-post', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '回复失败')
+  }
+})
+
+app.get('/api/music/state', (_req, res) => {
+  const store = loadStore()
+  const music = store.music || {
+    nowPlayingTrackId: '',
+    playlist: [],
+    uploadedSongs: [],
+    uploadedLyrics: [],
+    recentPlayed: [],
+  }
+  return res.json(buildPublicMusicState(music))
+})
+
+app.post('/api/music/tracks', (req, res) => {
+  try {
+    const store = loadStore()
+    const input = sanitizeMusicTrackInput(req.body)
+    if (!input.name) {
+      return sendError(req, res, 400, 'invalid_request', '歌曲名称必填')
+    }
+    store.music = store.music || {
+      nowPlayingTrackId: '',
+      playlist: [],
+      uploadedSongs: [],
+      uploadedLyrics: [],
+      recentPlayed: [],
+    }
+    store.music.playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
+    const track = {
+      id: `track-${randomUUID()}`,
+      name: input.name,
+      artist: input.artist,
+      durationSec: input.durationSec,
+      addedAt: new Date().toISOString(),
+    }
+    store.music.playlist.push(track)
+    if (!store.music.nowPlayingTrackId) {
+      store.music.nowPlayingTrackId = track.id
+      recordRecentPlay(store.music, track.id)
+    }
+    saveStore(store)
+    return res.status(201).json({ ok: true, music: buildPublicMusicState(store.music) })
+  } catch (error) {
+    logError('music:add-track', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '添加歌曲失败')
+  }
+})
+
+app.post('/api/music/upload/song', (req, res) => {
+  try {
+    const store = loadStore()
+    const input = sanitizeSongUploadInput(req.body)
+    if (!input.fileName || !input.dataUrl) {
+      return sendError(req, res, 400, 'invalid_request', 'fileName/dataUrl 必填')
+    }
+    if (!input.dataUrl.startsWith('data:')) {
+      return sendError(req, res, 400, 'invalid_request', '歌曲文件格式无效')
+    }
+    store.music = store.music || {
+      nowPlayingTrackId: '',
+      playlist: [],
+      uploadedSongs: [],
+      uploadedLyrics: [],
+      recentPlayed: [],
+    }
+    store.music.playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
+    store.music.uploadedSongs = Array.isArray(store.music.uploadedSongs) ? store.music.uploadedSongs : []
+    const track = {
+      id: `track-${randomUUID()}`,
+      name: getTrackNameFromFileName(input.fileName),
+      artist: '本地上传',
+      durationSec: 0,
+      addedAt: new Date().toISOString(),
+    }
+    store.music.playlist.push(track)
+    if (!store.music.nowPlayingTrackId) {
+      store.music.nowPlayingTrackId = track.id
+      recordRecentPlay(store.music, track.id)
+    }
+    const uploadedSong = {
+      id: `song-${randomUUID()}`,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      size: input.size,
+      uploadedAt: new Date().toISOString(),
+      trackId: track.id,
+      dataUrl: input.dataUrl,
+    }
+    store.music.uploadedSongs.unshift(uploadedSong)
+    saveStore(store)
+    return res.status(201).json({
+      ok: true,
+      trackId: track.id,
+      uploadedSongId: uploadedSong.id,
+      music: buildPublicMusicState(store.music),
+    })
+  } catch (error) {
+    logError('music:upload-song', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '上传歌曲失败')
+  }
+})
+
+app.post('/api/music/upload/lyrics', (req, res) => {
+  try {
+    const store = loadStore()
+    const input = sanitizeLyricsUploadInput(req.body)
+    if (!input.fileName || !input.content.trim()) {
+      return sendError(req, res, 400, 'invalid_request', 'fileName/content 必填')
+    }
+    store.music = store.music || {
+      nowPlayingTrackId: '',
+      playlist: [],
+      uploadedSongs: [],
+      uploadedLyrics: [],
+      recentPlayed: [],
+    }
+    store.music.playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
+    store.music.uploadedLyrics = Array.isArray(store.music.uploadedLyrics) ? store.music.uploadedLyrics : []
+    const linkedTrackId =
+      input.linkedTrackId && store.music.playlist.find((item) => item.id === input.linkedTrackId)
+        ? input.linkedTrackId
+        : store.music.nowPlayingTrackId || store.music.playlist[0]?.id || ''
+    const uploadedLyrics = {
+      id: `lyrics-${randomUUID()}`,
+      fileName: input.fileName,
+      size: input.size,
+      uploadedAt: new Date().toISOString(),
+      linkedTrackId,
+      content: input.content,
+    }
+    store.music.uploadedLyrics.unshift(uploadedLyrics)
+    saveStore(store)
+    return res.status(201).json({
+      ok: true,
+      uploadedLyricsId: uploadedLyrics.id,
+      music: buildPublicMusicState(store.music),
+    })
+  } catch (error) {
+    logError('music:upload-lyrics', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '上传歌词失败')
+  }
+})
+
+app.put('/api/music/tracks/:trackId', (req, res) => {
+  try {
+    const store = loadStore()
+    const trackId = String(req.params.trackId || '').trim()
+    const name = String(req.body?.name || '').trim()
+    if (!trackId || !name) {
+      return sendError(req, res, 400, 'invalid_request', 'trackId/name 必填')
+    }
+    store.music = store.music || {
+      nowPlayingTrackId: '',
+      playlist: [],
+      uploadedSongs: [],
+      uploadedLyrics: [],
+      recentPlayed: [],
+    }
+    store.music.playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
+    store.music.uploadedSongs = Array.isArray(store.music.uploadedSongs) ? store.music.uploadedSongs : []
+    const track = store.music.playlist.find((item) => item.id === trackId)
+    if (!track) {
+      return sendError(req, res, 404, 'not_found', '歌曲不存在')
+    }
+    track.name = name
+    const song = store.music.uploadedSongs.find((item) => item.trackId === trackId)
+    if (song) {
+      song.fileName = name
+    }
+    saveStore(store)
+    return res.json({ ok: true, music: buildPublicMusicState(store.music) })
+  } catch (error) {
+    logError('music:rename-track', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '改歌名失败')
+  }
+})
+
+app.delete('/api/music/tracks/:trackId', (req, res) => {
+  try {
+    const store = loadStore()
+    store.music = store.music || {
+      nowPlayingTrackId: '',
+      playlist: [],
+      uploadedSongs: [],
+      uploadedLyrics: [],
+      recentPlayed: [],
+    }
+    const playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
+    const nextPlaylist = playlist.filter((item) => item.id !== req.params.trackId)
+    store.music.playlist = nextPlaylist
+    store.music.uploadedSongs = Array.isArray(store.music.uploadedSongs)
+      ? store.music.uploadedSongs.filter((item) => item.trackId !== req.params.trackId)
+      : []
+    store.music.uploadedLyrics = Array.isArray(store.music.uploadedLyrics)
+      ? store.music.uploadedLyrics.filter((item) => item.linkedTrackId !== req.params.trackId)
+      : []
+    store.music.recentPlayed = Array.isArray(store.music.recentPlayed)
+      ? store.music.recentPlayed.filter((item) => item.trackId !== req.params.trackId)
+      : []
+    if (store.music.nowPlayingTrackId === req.params.trackId) {
+      store.music.nowPlayingTrackId = nextPlaylist[0]?.id || ''
+      if (store.music.nowPlayingTrackId) {
+        recordRecentPlay(store.music, store.music.nowPlayingTrackId)
+      }
+    }
+    saveStore(store)
+    return res.json({ ok: true, music: buildPublicMusicState(store.music) })
+  } catch (error) {
+    logError('music:remove-track', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '删除歌曲失败')
+  }
+})
+
+app.put('/api/music/now-playing', (req, res) => {
+  try {
+    const store = loadStore()
+    const trackId = String(req.body?.trackId || '').trim()
+    store.music = store.music || {
+      nowPlayingTrackId: '',
+      playlist: [],
+      uploadedSongs: [],
+      uploadedLyrics: [],
+      recentPlayed: [],
+    }
+    const playlist = Array.isArray(store.music.playlist) ? store.music.playlist : []
+    if (trackId && !playlist.find((item) => item.id === trackId)) {
+      return sendError(req, res, 400, 'invalid_request', '歌曲不存在')
+    }
+    store.music.nowPlayingTrackId = trackId
+    recordRecentPlay(store.music, trackId)
+    saveStore(store)
+    return res.json({ ok: true, music: buildPublicMusicState(store.music) })
+  } catch (error) {
+    logError('music:set-now-playing', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '更新播放状态失败')
+  }
 })
 
 app.post('/api/import', (req, res) => {

@@ -6,15 +6,21 @@ type LauncherProps = {
   modernHome?: boolean
 }
 
-const temporarilyClosedAppIds = new Set(['role-moments', 'role-forum'])
+const temporarilyClosedAppIds = new Set<string>(['role-moments', 'role-forum'])
 
 export function Launcher({ modernHome = false }: LauncherProps) {
   const openApp = useSimulatorStore((state) => state.openApp)
   const openedAppIds = useSimulatorStore((state) => state.openedAppIds)
+  const visibleApps = [...appRegistry].sort((a, b) => {
+    const aClosed = temporarilyClosedAppIds.has(a.id)
+    const bClosed = temporarilyClosedAppIds.has(b.id)
+    if (aClosed === bClosed) return 0
+    return aClosed ? 1 : -1
+  })
 
   return (
     <section className={`launcher-grid ${modernHome ? 'launcher-grid-modern' : ''}`}>
-      {appRegistry.map((app) => {
+      {visibleApps.map((app) => {
         const isClosed = temporarilyClosedAppIds.has(app.id)
         return (
           <PixelIcon

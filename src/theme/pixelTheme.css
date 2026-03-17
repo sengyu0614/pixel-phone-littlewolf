@@ -578,6 +578,82 @@ body {
   overflow: hidden;
 }
 
+.music-add-song-entry {
+  position: relative;
+  display: inline-flex;
+}
+
+.music-add-song-panel {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 6;
+  min-width: 13.5rem;
+  padding: 0.35rem;
+  border: 2px solid var(--pixel-border);
+  background: #1f1836;
+  box-shadow: 2px 2px 0 var(--pixel-shadow);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.music-playlist-panel {
+  border: 1px solid var(--pixel-border);
+  background: #1a1430;
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.music-song-file-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.music-song-file-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.music-song-file-list li span {
+  flex: 1;
+  min-width: 0;
+}
+
+.music-song-play-btn {
+  min-width: 2.7rem;
+  padding: 0.14rem 0.38rem;
+  line-height: 1.2;
+}
+
+.music-song-replay-btn {
+  min-width: 2.3rem;
+  padding: 0.14rem 0.32rem;
+  line-height: 1.2;
+}
+
+.music-song-rename-btn,
+.music-song-delete-btn {
+  min-width: 3.1rem;
+  padding: 0.14rem 0.32rem;
+  line-height: 1.2;
+}
+
+.music-played-time {
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.01em;
+}
+
 .persona-shelf-title {
   margin: 0;
 }

@@ -1,14 +1,7 @@
+{}
 {
   "roles": [],
-  "worldBooks": [
-    {
-      "id": "worldbook-4dc751a2-8088-419a-96c7-a3cade8c6187",
-      "name": "一",
-      "content": "兽人",
-      "createdAt": "2026-03-16T03:06:44.200Z",
-      "updatedAt": "2026-03-16T03:06:44.200Z"
-    }
-  ],
+  "worldBooks": [],
   "apiConfig": {
     "baseUrl": "",
     "model": "",
@@ -32,10 +25,10 @@
     "allowPrivateForAI": false
   },
   "license": {
-    "activated": true,
-    "activatedAt": "2026-03-16T02:57:19.971Z",
-    "deviceId": "dev-test",
-    "nickname": "????"
+    "activated": false,
+    "activatedAt": "",
+    "deviceId": "",
+    "nickname": ""
   },
   "automationSettings": {
     "autoMessageEnabled": false,
@@ -45,6 +38,19 @@
     "autoSummaryEnabled": true,
     "autoSummaryRounds": 6,
     "lastAutoMessageAt": {}
+  },
+  "moments": {
+    "posts": []
+  },
+  "forum": {
+    "posts": []
+  },
+  "music": {
+    "nowPlayingTrackId": "",
+    "playlist": [],
+    "uploadedSongs": [],
+    "uploadedLyrics": [],
+    "recentPlayed": []
   },
   "conversations": {}
 }

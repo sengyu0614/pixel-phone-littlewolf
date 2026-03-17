@@ -14,13 +14,22 @@ export function AppRuntime({ modernHome = false }: AppRuntimeProps) {
   const closeApp = useSimulatorStore((state) => state.closeApp)
   const goHome = useSimulatorStore((state) => state.goHome)
   const activeApp = activeAppId ? getRegisteredAppById(activeAppId) : undefined
+  const preferredSwitcherOrder = ['role-contacts', 'role-worldbook', 'role-messages', 'role-settings', 'role-persona']
+  const appOrderIndex = new Map(preferredSwitcherOrder.map((id, index) => [id, index]))
   const openedApps: AppDefinition[] = openedAppIds.reduce<AppDefinition[]>((apps, appId) => {
     const app = getRegisteredAppById(appId)
     if (app) {
       apps.push(app)
     }
     return apps
-  }, [])
+  }, []).sort((a, b) => {
+    const aOrder = appOrderIndex.get(a.id)
+    const bOrder = appOrderIndex.get(b.id)
+    if (aOrder !== undefined && bOrder !== undefined) return aOrder - bOrder
+    if (aOrder !== undefined) return -1
+    if (bOrder !== undefined) return 1
+    return 0
+  })
 
   if (!activeApp) {
     return (

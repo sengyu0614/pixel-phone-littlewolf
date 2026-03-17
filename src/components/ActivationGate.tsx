@@ -92,11 +92,9 @@ export function ActivationGate({ children }: ActivationGateProps) {
   if (activated) {
     return (
       <>
-        {savedNickname ? (
-          <div className="license-badge" title="授权状态">
-            已激活 {savedNickname}
-          </div>
-        ) : null}
+        <div className="license-badge" title="授权状态">
+          已激活{savedNickname ? ` ${savedNickname}` : ''}
+        </div>
         {children}
       </>
     )

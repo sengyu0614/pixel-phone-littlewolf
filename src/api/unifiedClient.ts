@@ -5,7 +5,10 @@ import type {
   ChatResponse,
   AutomationSettings,
   ConversationSnapshot,
+  ForumPost,
   LicenseStatus,
+  MomentPost,
+  MusicState,
   RoleProfile,
   UserPersonaMemory,
   WorldBook,
@@ -47,6 +50,14 @@ async function request<T>(path: string, options: RequestOptions = {}) {
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new UnifiedApiError('timeout', 408, '请求超时，请稍后重试')
+    }
+    if (error instanceof TypeError) {
+      const base = API_BASE || window.location.origin
+      throw new UnifiedApiError(
+        'network_unreachable',
+        0,
+        `无法连接到 API 服务（${base}）。请确认后端已启动且地址配置正确。`,
+      )
     }
     throw error
   } finally {
@@ -196,4 +207,122 @@ export async function fetchSessionsSnapshot() {
     method: 'GET',
   })
   return result.conversations
+}
+
+export async function fetchMomentsPosts() {
+  const result = await request<{ posts: MomentPost[] }>('/api/moments/posts', { method: 'GET' })
+  return result.posts
+}
+
+export async function createMomentPost(input: { roleId: string; content: string; images?: string[] }) {
+  const result = await request<{ post: MomentPost }>('/api/moments/posts', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+  return result.post
+}
+
+export async function likeMomentPost(postId: string, likedByMe: boolean) {
+  return request<{ ok: boolean; post: MomentPost }>(`/api/moments/posts/${postId}/like`, {
+    method: 'POST',
+    body: JSON.stringify({ likedByMe }),
+  })
+}
+
+export async function commentMomentPost(postId: string, input: { roleId: string; content: string }) {
+  return request<{ ok: boolean; post: MomentPost }>(`/api/moments/posts/${postId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function fetchForumPosts(section?: 'recommend' | 'follow' | 'gossip') {
+  const query = section ? `?section=${encodeURIComponent(section)}` : ''
+  const result = await request<{ posts: ForumPost[] }>(`/api/forum/posts${query}`, { method: 'GET' })
+  return result.posts
+}
+
+export async function createForumPost(input: {
+  roleId: string
+  title: string
+  content: string
+  section?: 'recommend' | 'follow' | 'gossip'
+  tags?: string[]
+}) {
+  const result = await request<{ post: ForumPost }>('/api/forum/posts', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+  return result.post
+}
+
+export async function likeForumPost(postId: string, likedByMe: boolean) {
+  return request<{ ok: boolean; post: ForumPost }>(`/api/forum/posts/${postId}/like`, {
+    method: 'POST',
+    body: JSON.stringify({ likedByMe }),
+  })
+}
+
+export async function replyForumPost(postId: string, input: { roleId: string; content: string }) {
+  return request<{ ok: boolean; post: ForumPost }>(`/api/forum/posts/${postId}/replies`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function fetchMusicState() {
+  return request<MusicState>('/api/music/state', { method: 'GET' })
+}
+
+export async function addMusicTrack(input: { name: string; artist?: string; durationSec?: number }) {
+  return request<{ ok: boolean; music: MusicState }>('/api/music/tracks', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function renameMusicTrack(trackId: string, name: string) {
+  return request<{ ok: boolean; music: MusicState }>(`/api/music/tracks/${trackId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  })
+}
+
+export async function removeMusicTrack(trackId: string) {
+  return request<{ ok: boolean; music: MusicState }>(`/api/music/tracks/${trackId}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function setNowPlayingTrack(trackId: string) {
+  return request<{ ok: boolean; music: MusicState }>('/api/music/now-playing', {
+    method: 'PUT',
+    body: JSON.stringify({ trackId }),
+  })
+}
+
+export async function uploadMusicSongFile(input: {
+  fileName: string
+  mimeType: string
+  size: number
+  dataUrl: string
+}) {
+  return request<{ ok: boolean; music: MusicState; trackId: string; uploadedSongId: string }>('/api/music/upload/song', {
+    method: 'POST',
+    body: JSON.stringify(input),
+    timeoutMs: 120000,
+  })
+}
+
+export async function uploadMusicLyricsFile(input: {
+  fileName: string
+  size: number
+  content: string
+  linkedTrackId?: string
+}) {
+  return request<{ ok: boolean; music: MusicState; uploadedLyricsId: string }>('/api/music/upload/lyrics', {
+    method: 'POST',
+    body: JSON.stringify(input),
+    timeoutMs: 120000,
+  })
 }

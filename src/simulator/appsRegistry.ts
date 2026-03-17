@@ -5,7 +5,11 @@ import {
   RoleSettingsApp,
   RoleWorldBookApp,
 } from '../apps/RolePhoneApps'
-import { RoleForumApp, RoleMomentsApp } from '../apps/LittlewolfExtraApps'
+import {
+  RoleForumApp,
+  RoleMomentsApp,
+  RoleMusicApp,
+} from '../apps/LittlewolfExtraApps'
 import type { AppDefinition } from './types'
 
 export const appRegistry: AppDefinition[] = [
@@ -38,13 +42,6 @@ export const appRegistry: AppDefinition[] = [
     component: RolePersonaApp,
   },
   {
-    id: 'role-settings',
-    name: '设置',
-    icon: '配',
-    description: '配置 API、世界书与聊天样式',
-    component: RoleSettingsApp,
-  },
-  {
     id: 'role-moments',
     name: '朋友圈',
     icon: '圈',
@@ -57,6 +54,20 @@ export const appRegistry: AppDefinition[] = [
     icon: '坛',
     description: '同人论坛与帖子互动',
     component: RoleForumApp,
+  },
+  {
+    id: 'role-music',
+    name: '音乐',
+    icon: '乐',
+    description: '播放列表与一起听',
+    component: RoleMusicApp,
+  },
+  {
+    id: 'role-settings',
+    name: '设置',
+    icon: '配',
+    description: '配置 API、世界书与聊天样式',
+    component: RoleSettingsApp,
   },
 ]
 

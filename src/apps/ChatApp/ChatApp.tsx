@@ -288,6 +288,22 @@ const THEME_PRESETS: ThemePreset[] = [
       friendBubbleColor: '#1f63ff',
     },
   },
+  {
+    id: 'new-730-jrsy',
+    name: 'JRSY / new-730',
+    description: '贴近参考站的清爽浅色卡片风格',
+    localTheme: {
+      themeMode: 'custom',
+      fontFamily: 'system-ui, "PingFang SC", "Microsoft YaHei", sans-serif',
+      avatarFrameColor: '#7c6cff',
+      avatarFrameSize: 2,
+      avatarPendant: '🌟',
+    },
+    bubbles: {
+      myBubbleColor: '#6f5bff',
+      friendBubbleColor: '#4a69d8',
+    },
+  },
 ]
 
 function formatMessageTime(iso: string, showSeconds: boolean) {
@@ -402,15 +418,15 @@ type ChatAppProps = AppRuntimeProps & {
   enableSettingsSubTabs?: boolean
 }
 
-const MAIN_TAB_DEFAULT_ORDER: TabKey[] = ['roles', 'chat', 'worldbook', 'editor', 'settings', 'chat-style']
+const MAIN_TAB_DEFAULT_ORDER: TabKey[] = ['roles', 'worldbook', 'chat', 'settings', 'editor']
 const SETTINGS_SUB_TAB_ORDER: TabKey[] = ['settings', 'chat-style']
 const TAB_LABELS: Record<TabKey, string> = {
   roles: '通讯录',
-  chat: '聊天',
+  chat: '消息',
   worldbook: '世界书',
-  editor: '人设',
+  editor: '我的人设',
   settings: '设置',
-  'chat-style': '聊天设置',
+  'chat-style': '聊天样式',
 }
 
 export function ChatApp({
@@ -562,6 +578,31 @@ export function ChatApp({
       friendBubbleColor: preset.bubbles.friendBubbleColor,
     }))
     setSuccessText(`已应用主题预设：${preset.name}`)
+  }
+
+  function applyNew730Pack() {
+    const nextFlags: UiFeatureFlags = {
+      newHomeUI: true,
+      newChatUI: true,
+      newSettingsUI: true,
+    }
+    setUiFlags(nextFlags)
+    saveUiFeatureFlags(nextFlags)
+    applyThemePreset('new-730-jrsy')
+    setLocalTheme((prev) => ({
+      ...prev,
+      themeMode: 'custom',
+      customThemeBodyGradStart: '#8f7cf0',
+      customThemeBodyGradMid: '#5747a5',
+      customThemeBodyGradEnd: '#2a1f54',
+      customThemeFrameBg: '#120c24',
+      customThemeScreenBg: '#2b2352',
+      customThemeSurface1: 'rgba(103, 86, 183, 0.62)',
+      customThemeSurface2: 'rgba(71, 57, 128, 0.88)',
+      customThemeBorderSubtle: 'rgba(239, 231, 255, 0.3)',
+      fontColor: '#f9f6ff',
+    }))
+    setSuccessText('已套用 new-730 参考风格（含新 UI 开关）')
   }
 
   const selectedRole = useMemo(
@@ -1890,23 +1931,23 @@ export function ChatApp({
                   size="sm"
                   variant="ghost"
                   onClick={() => {
-                    setShowAddFriendForm(true)
-                    setShowCreateGroupForm(false)
-                    setShowRoleQuickMenu(false)
-                  }}
-                >
-                  添加好友
-                </PixelButton>
-                <PixelButton
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
                     setShowCreateGroupForm(true)
                     setShowAddFriendForm(false)
                     setShowRoleQuickMenu(false)
                   }}
                 >
                   发起群聊
+                </PixelButton>
+                <PixelButton
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowAddFriendForm(true)
+                    setShowCreateGroupForm(false)
+                    setShowRoleQuickMenu(false)
+                  }}
+                >
+                  添加好友
                 </PixelButton>
               </div>
             ) : null}
@@ -2560,11 +2601,16 @@ export function ChatApp({
       {tab === 'settings' ? (
         <div className={`editor-panel ${uiFlags.newSettingsUI ? 'settings-modern-layout' : ''}`}>
           <div className="worldbook-editor settings-flag-panel">
-            <h4>界面升级开关</h4>
-            <p className="text-pixel-text-muted">可按模块灰度启用，关闭后立即回退旧界面。</p>
+              <h4>界面风格</h4>
+              <p className="text-pixel-text-muted">基于 PIXEL 框架切换视觉层，不影响现有应用与数据。</p>
+            <div className="chat-toolbar">
+              <PixelButton size="sm" onClick={applyNew730Pack}>
+                一键套用 new-730
+              </PixelButton>
+            </div>
             <div className="settings-toggle-grid">
               <label className="settings-toggle-item">
-                <span>首页与导航新样式</span>
+                <span>首页与导航风格</span>
                 <select
                   className="pixel-select"
                   value={uiFlags.newHomeUI ? '1' : '0'}
@@ -2575,7 +2621,7 @@ export function ChatApp({
                 </select>
               </label>
               <label className="settings-toggle-item">
-                <span>聊天页新样式</span>
+                <span>聊天页风格</span>
                 <select
                   className="pixel-select"
                   value={uiFlags.newChatUI ? '1' : '0'}
@@ -2586,7 +2632,7 @@ export function ChatApp({
                 </select>
               </label>
               <label className="settings-toggle-item">
-                <span>设置页新样式</span>
+                <span>设置页风格</span>
                 <select
                   className="pixel-select"
                   value={uiFlags.newSettingsUI ? '1' : '0'}

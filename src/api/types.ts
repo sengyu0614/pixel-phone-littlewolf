@@ -113,6 +113,87 @@ export type ConversationSnapshot = {
   memory: MemorySnapshot
 }
 
+export type MomentComment = {
+  id: string
+  roleId: string
+  roleName: string
+  content: string
+  createdAt: string
+}
+
+export type MomentPost = {
+  id: string
+  roleId: string
+  roleName: string
+  content: string
+  images: string[]
+  likes: number
+  likedByMe: boolean
+  createdAt: string
+  comments: MomentComment[]
+}
+
+export type ForumReply = {
+  id: string
+  roleId: string
+  roleName: string
+  content: string
+  createdAt: string
+}
+
+export type ForumPost = {
+  id: string
+  roleId: string
+  roleName: string
+  title: string
+  content: string
+  section: 'recommend' | 'follow' | 'gossip'
+  tags: string[]
+  likes: number
+  likedByMe: boolean
+  createdAt: string
+  replies: ForumReply[]
+}
+
+export type MusicTrack = {
+  id: string
+  name: string
+  artist: string
+  durationSec: number
+  addedAt: string
+}
+
+export type MusicSongFile = {
+  id: string
+  fileName: string
+  mimeType: string
+  size: number
+  uploadedAt: string
+  trackId: string
+  dataUrl?: string
+}
+
+export type MusicLyricsFile = {
+  id: string
+  fileName: string
+  size: number
+  uploadedAt: string
+  linkedTrackId: string
+}
+
+export type MusicRecentPlay = {
+  trackId: string
+  playedAt: string
+}
+
+export type MusicState = {
+  nowPlayingTrackId: string
+  playlist: MusicTrack[]
+  uploadedSongs?: MusicSongFile[]
+  uploadedLyrics?: MusicLyricsFile[]
+  recentPlayed?: MusicRecentPlay[]
+}
+
 export class UnifiedApiError extends Error {
   code: string
   status: number

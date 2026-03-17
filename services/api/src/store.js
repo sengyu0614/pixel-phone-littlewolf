@@ -69,6 +69,19 @@ export function createInitialState() {
       autoSummaryRounds: 6,
       lastAutoMessageAt: {},
     },
+    moments: {
+      posts: [],
+    },
+    forum: {
+      posts: [],
+    },
+    music: {
+      nowPlayingTrackId: '',
+      playlist: [],
+      uploadedSongs: [],
+      uploadedLyrics: [],
+      recentPlayed: [],
+    },
     conversations: {},
   }
 }
