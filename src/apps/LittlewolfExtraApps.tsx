@@ -59,8 +59,8 @@ function formatPlayTimeLabel(iso: string) {
   })
 }
 
-const MAX_SONG_UPLOAD_MB = 12
-const MAX_LYRICS_UPLOAD_MB = 2
+const MAX_SONG_UPLOAD_MB = 15
+const MAX_LYRICS_UPLOAD_MB = 5
 const MAX_SONG_UPLOAD_BYTES = MAX_SONG_UPLOAD_MB * 1024 * 1024
 const MAX_LYRICS_UPLOAD_BYTES = MAX_LYRICS_UPLOAD_MB * 1024 * 1024
 
