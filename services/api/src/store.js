@@ -119,18 +119,29 @@ function ensureDataFile() {
 export function loadStore() {
   ensureDataFile()
   const file = path.join(runtimeDataDir, 'store.json')
-  const content = fs.readFileSync(file, 'utf8')
-  const parsed = JSON.parse(content)
-  return {
-    ...createInitialState(),
-    ...parsed,
+  try {
+    const content = fs.readFileSync(file, 'utf8')
+    const parsed = JSON.parse(content)
+    const safeParsed =
+      parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : createInitialState()
+    return {
+      ...createInitialState(),
+      ...safeParsed,
+    }
+  } catch {
+    // 自愈：数据文件损坏时自动重置，避免接口整体 502
+    const fallback = createInitialState()
+    fs.writeFileSync(file, JSON.stringify(fallback, null, 2), 'utf8')
+    return fallback
   }
 }
 
 export function saveStore(nextStore) {
   ensureDataFile()
   const file = path.join(runtimeDataDir, 'store.json')
-  fs.writeFileSync(file, JSON.stringify(nextStore, null, 2), 'utf8')
+  const tmpFile = `${file}.tmp`
+  fs.writeFileSync(tmpFile, JSON.stringify(nextStore, null, 2), 'utf8')
+  fs.renameSync(tmpFile, file)
 }
 
 export function upsertRole(store, roleInput, roleId) {
