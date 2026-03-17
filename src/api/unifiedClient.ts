@@ -355,6 +355,13 @@ export async function uploadMusicLyricsFile(input: {
   })
 }
 
+export async function fetchMusicTrackFile(trackId: string) {
+  return request<{ ok: boolean; trackId: string; fileName: string; mimeType: string; size: number; dataUrl: string }>(
+    `/api/music/tracks/${encodeURIComponent(trackId)}/file`,
+    { method: 'GET', timeoutMs: 120000 },
+  )
+}
+
 export async function checkApiHealth(timeoutMs = 8000) {
   return request<{ ok: boolean; ts?: string }>('/api/health', {
     method: 'GET',

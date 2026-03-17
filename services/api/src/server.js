@@ -281,7 +281,6 @@ function buildPublicMusicState(music) {
           size: Math.max(0, Number(item?.size) || 0),
           uploadedAt: String(item?.uploadedAt || ''),
           trackId: String(item?.trackId || ''),
-          dataUrl: String(item?.dataUrl || ''),
         }))
       : [],
     uploadedLyrics: Array.isArray(safeMusic.uploadedLyrics)
@@ -917,6 +916,33 @@ app.get('/api/music/state', (req, res) => {
     saveStore(store)
   }
   return res.json(buildPublicMusicState(music))
+})
+
+app.get('/api/music/tracks/:trackId/file', (req, res) => {
+  try {
+    const store = loadStore()
+    const { music: scopedMusic } = getOrCreateDeviceMusicState(store, resolveRequestDeviceId(req))
+    const trackId = String(req.params.trackId || '').trim()
+    if (!trackId) {
+      return sendError(req, res, 400, 'invalid_request', 'trackId 必填')
+    }
+    const uploadedSongs = Array.isArray(scopedMusic.uploadedSongs) ? scopedMusic.uploadedSongs : []
+    const song = uploadedSongs.find((item) => item.trackId === trackId)
+    if (!song || !String(song.dataUrl || '').trim()) {
+      return sendError(req, res, 404, 'not_found', '歌曲文件不存在或已失效，请重新上传')
+    }
+    return res.json({
+      ok: true,
+      trackId,
+      fileName: String(song.fileName || ''),
+      mimeType: String(song.mimeType || ''),
+      size: Math.max(0, Number(song.size) || 0),
+      dataUrl: String(song.dataUrl || ''),
+    })
+  } catch (error) {
+    logError('music:get-track-file', error, getRequestId(req))
+    return sendError(req, res, 500, 'server_error', '读取歌曲文件失败')
+  }
 })
 
 app.post('/api/music/tracks', (req, res) => {

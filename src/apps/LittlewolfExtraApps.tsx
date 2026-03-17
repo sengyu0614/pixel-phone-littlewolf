@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import {
   checkApiHealth,
+  fetchMusicTrackFile,
   fetchMusicState,
   getApiBaseUrl,
   removeMusicTrack,
@@ -261,9 +262,9 @@ export function RoleMusicApp(props: AppRuntimeProps) {
     sourceSongs: MusicSongFile[],
     options?: { resume?: boolean },
   ) {
-    const target = sourceSongs.find((item) => item.trackId === trackId)
-    if (!target?.dataUrl) {
-      setErrorText('歌曲缺少音频数据，请重新上传后再试')
+    let target = sourceSongs.find((item) => item.trackId === trackId)
+    if (!target) {
+      setErrorText('歌曲信息不存在，请刷新后重试')
       return false
     }
     const audio = audioRef.current
@@ -272,10 +273,27 @@ export function RoleMusicApp(props: AppRuntimeProps) {
       return false
     }
     try {
+      if (!target.dataUrl) {
+        const fileResult = await fetchMusicTrackFile(trackId)
+        const nextDataUrl = String(fileResult.dataUrl || '')
+        if (!nextDataUrl) {
+          setErrorText('歌曲文件不存在或已失效，请重新上传后再试')
+          return false
+        }
+        setUploadedSongs((prev) =>
+          prev.map((item) => (item.trackId === trackId ? { ...item, dataUrl: nextDataUrl } : item)),
+        )
+        target = { ...target, dataUrl: nextDataUrl }
+      }
+      const resolvedDataUrl = String(target.dataUrl || '')
+      if (!resolvedDataUrl) {
+        setErrorText('歌曲文件不存在或已失效，请重新上传后再试')
+        return false
+      }
       const shouldResume = Boolean(options?.resume)
-      const hasSameSource = audio.src === target.dataUrl
+      const hasSameSource = audio.src === resolvedDataUrl
       if (!hasSameSource) {
-        audio.src = target.dataUrl
+        audio.src = resolvedDataUrl
       }
       if (!shouldResume || !hasSameSource) {
         audio.currentTime = 0
