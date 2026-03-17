@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import { randomUUID } from 'node:crypto'
 import {
   appendConversationMessage,
   createInitialState,
@@ -23,6 +24,13 @@ const defaultActivationCode = String(process.env.ACTIVATION_CODE || 'LITTLEWOLF2
 
 app.use(cors())
 app.use(express.json({ limit: '1mb' }))
+app.use((req, res, next) => {
+  const incomingRequestId = String(req.headers['x-request-id'] || '').trim()
+  const requestId = incomingRequestId || randomUUID()
+  req.requestId = requestId
+  res.setHeader('x-request-id', requestId)
+  next()
+})
 
 function sanitizeRoleInput(input) {
   const persona = input.persona || {}
@@ -48,9 +56,23 @@ function sanitizeRoleInput(input) {
   }
 }
 
-function logError(scope, error) {
+function logError(scope, error, requestId = 'unknown', extra = {}) {
   const message = error instanceof Error ? error.message : String(error)
-  console.error(`[${scope}]`, message)
+  const stack = error instanceof Error ? error.stack : undefined
+  console.error(`[${scope}]`, { requestId, message, stack, ...extra })
+}
+
+function getRequestId(req) {
+  return String(req.requestId || 'unknown')
+}
+
+function sendError(req, res, status, code, message) {
+  return res.status(status).json({
+    code,
+    message,
+    requestId: getRequestId(req),
+    ts: new Date().toISOString(),
+  })
 }
 
 function sanitizeChatUiSettings(input) {
@@ -197,10 +219,10 @@ app.post('/api/license/activate', (req, res) => {
     const nickname = String(req.body?.nickname || '').trim()
 
     if (!code) {
-      return res.status(400).json({ code: 'invalid_request', message: '激活码不能为空' })
+      return sendError(req, res, 400, 'invalid_request', '激活码不能为空')
     }
     if (code !== defaultActivationCode) {
-      return res.status(400).json({ code: 'invalid_code', message: '激活码无效' })
+      return sendError(req, res, 400, 'invalid_code', '激活码无效')
     }
 
     store.license = {
@@ -217,8 +239,8 @@ app.post('/api/license/activate', (req, res) => {
       nickname: store.license.nickname,
     })
   } catch (error) {
-    logError('license:activate', error)
-    return res.status(500).json({ code: 'activation_failed', message: '激活失败，请稍后再试' })
+    logError('license:activate', error, getRequestId(req))
+    return sendError(req, res, 500, 'activation_failed', '激活失败，请稍后再试')
   }
 })
 
@@ -239,8 +261,8 @@ app.post('/api/worldbooks', (req, res) => {
     saveStore(store)
     res.status(201).json({ worldBook })
   } catch (error) {
-    logError('worldbooks:create', error)
-    res.status(400).json({ message: error instanceof Error ? error.message : '创建世界书失败' })
+    logError('worldbooks:create', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '创建世界书失败')
   }
 })
 
@@ -251,8 +273,8 @@ app.post('/api/roles', (req, res) => {
     saveStore(store)
     res.status(201).json({ role: created })
   } catch (error) {
-    logError('roles:create', error)
-    res.status(400).json({ message: error instanceof Error ? error.message : '创建角色失败' })
+    logError('roles:create', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '创建角色失败')
   }
 })
 
@@ -263,8 +285,8 @@ app.put('/api/roles/:roleId', (req, res) => {
     saveStore(store)
     res.json({ role: updated })
   } catch (error) {
-    logError('roles:update', error)
-    res.status(400).json({ message: error instanceof Error ? error.message : '更新角色失败' })
+    logError('roles:update', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '更新角色失败')
   }
 })
 
@@ -273,19 +295,19 @@ app.put('/api/roles/:roleId/worldbook', (req, res) => {
     const store = loadStore()
     const role = store.roles.find((item) => item.id === req.params.roleId)
     if (!role) {
-      return res.status(404).json({ code: 'not_found', message: '角色不存在' })
+      return sendError(req, res, 404, 'not_found', '角色不存在')
     }
     const worldBookId = String(req.body?.worldBookId || '').trim()
     if (worldBookId && !store.worldBooks.find((item) => item.id === worldBookId)) {
-      return res.status(400).json({ code: 'invalid_request', message: '世界书不存在' })
+      return sendError(req, res, 400, 'invalid_request', '世界书不存在')
     }
     role.worldBookId = worldBookId
     role.updatedAt = new Date().toISOString()
     saveStore(store)
     return res.json({ ok: true, role })
   } catch (error) {
-    logError('roles:bind-worldbook', error)
-    return res.status(400).json({ message: error instanceof Error ? error.message : '绑定失败' })
+    logError('roles:bind-worldbook', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '绑定失败')
   }
 })
 
@@ -315,8 +337,14 @@ app.put('/api/chat-settings', (req, res) => {
     saveStore(store)
     res.json({ ok: true, chatUiSettings: nextSettings })
   } catch (error) {
-    logError('chat-settings:update', error)
-    res.status(400).json({ message: error instanceof Error ? error.message : '保存聊天设置失败' })
+    logError('chat-settings:update', error, getRequestId(req))
+    return sendError(
+      req,
+      res,
+      400,
+      'invalid_request',
+      error instanceof Error ? error.message : '保存聊天设置失败',
+    )
   }
 })
 
@@ -338,8 +366,14 @@ app.put('/api/automation/settings', (req, res) => {
     saveStore(store)
     res.json({ ok: true, automationSettings: nextSettings })
   } catch (error) {
-    logError('automation-settings:update', error)
-    res.status(400).json({ message: error instanceof Error ? error.message : '保存自动化设置失败' })
+    logError('automation-settings:update', error, getRequestId(req))
+    return sendError(
+      req,
+      res,
+      400,
+      'invalid_request',
+      error instanceof Error ? error.message : '保存自动化设置失败',
+    )
   }
 })
 
@@ -351,8 +385,14 @@ app.put('/api/user-persona', (req, res) => {
     saveStore(store)
     res.json({ ok: true, userPersona })
   } catch (error) {
-    logError('user-persona:update', error)
-    res.status(400).json({ message: error instanceof Error ? error.message : '保存用户人设失败' })
+    logError('user-persona:update', error, getRequestId(req))
+    return sendError(
+      req,
+      res,
+      400,
+      'invalid_request',
+      error instanceof Error ? error.message : '保存用户人设失败',
+    )
   }
 })
 
@@ -391,13 +431,13 @@ app.post('/api/chat', async (req, res) => {
   const message = String(body.message || '').trim()
 
   if (!roleId || !sessionId || !message) {
-    return res.status(400).json({ code: 'invalid_request', message: 'roleId/sessionId/message 必填' })
+    return sendError(req, res, 400, 'invalid_request', 'roleId/sessionId/message 必填')
   }
 
   const store = loadStore()
   const role = store.roles.find((item) => item.id === roleId)
   if (!role) {
-    return res.status(404).json({ code: 'not_found', message: '角色不存在' })
+    return sendError(req, res, 404, 'not_found', '角色不存在')
   }
 
   const apiKey = decryptSecret(store.apiConfig.apiKeyEncrypted, appSecret)
@@ -456,11 +496,11 @@ app.post('/api/chat', async (req, res) => {
       conversation: updatedConversation.messages.slice(-24),
     })
   } catch (error) {
-    logError('chat', error)
+    logError('chat', error, getRequestId(req))
     const status = Number(error?.status || 500)
     const code = String(error?.code || 'unknown_error')
     const messageText = error instanceof Error ? error.message : '请求失败'
-    return res.status(status).json({ code, message: messageText })
+    return sendError(req, res, status, code, messageText)
   }
 })
 
@@ -471,10 +511,10 @@ app.put('/api/sessions/:sessionId/worldbook', (req, res) => {
     const roleId = String(req.body?.roleId || '').trim()
     const worldBookId = String(req.body?.worldBookId || '').trim()
     if (!sessionId || !roleId) {
-      return res.status(400).json({ code: 'invalid_request', message: 'sessionId/roleId 必填' })
+      return sendError(req, res, 400, 'invalid_request', 'sessionId/roleId 必填')
     }
     if (worldBookId && !store.worldBooks.find((item) => item.id === worldBookId)) {
-      return res.status(400).json({ code: 'invalid_request', message: '世界书不存在' })
+      return sendError(req, res, 400, 'invalid_request', '世界书不存在')
     }
     if (!store.conversations[sessionId]) {
       store.conversations[sessionId] = {
@@ -490,8 +530,8 @@ app.put('/api/sessions/:sessionId/worldbook', (req, res) => {
     saveStore(store)
     return res.json({ ok: true, sessionId, worldBookId })
   } catch (error) {
-    logError('sessions:bind-worldbook', error)
-    return res.status(400).json({ message: error instanceof Error ? error.message : '绑定失败' })
+    logError('sessions:bind-worldbook', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '绑定失败')
   }
 })
 
@@ -517,7 +557,7 @@ app.post('/api/import', (req, res) => {
   try {
     const payload = req.body?.data ?? req.body
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return res.status(400).json({ code: 'invalid_request', message: '导入数据格式无效' })
+      return sendError(req, res, 400, 'invalid_request', '导入数据格式无效')
     }
     const current = loadStore()
     const imported = payload
@@ -563,8 +603,8 @@ app.post('/api/import', (req, res) => {
       conversations: Object.keys(nextStore.conversations || {}).length,
     })
   } catch (error) {
-    logError('data:import', error)
-    return res.status(400).json({ code: 'import_failed', message: '导入失败，请检查 JSON 文件' })
+    logError('data:import', error, getRequestId(req))
+    return sendError(req, res, 400, 'import_failed', '导入失败，请检查 JSON 文件')
   }
 })
 
@@ -572,7 +612,7 @@ app.delete('/api/purge', (req, res) => {
   try {
     const confirmText = String(req.body?.confirmText || '').trim()
     if (confirmText !== 'PURGE_ALL') {
-      return res.status(400).json({ code: 'invalid_request', message: '请确认清空指令' })
+      return sendError(req, res, 400, 'invalid_request', '请确认清空指令')
     }
     const current = loadStore()
     const resetStore = createInitialState()
@@ -583,8 +623,8 @@ app.delete('/api/purge', (req, res) => {
     saveStore(resetStore)
     return res.json({ ok: true })
   } catch (error) {
-    logError('data:purge', error)
-    return res.status(500).json({ code: 'purge_failed', message: '清空失败，请稍后重试' })
+    logError('data:purge', error, getRequestId(req))
+    return sendError(req, res, 500, 'purge_failed', '清空失败，请稍后重试')
   }
 })
 

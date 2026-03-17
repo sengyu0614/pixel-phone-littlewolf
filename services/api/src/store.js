@@ -1,11 +1,26 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 
-const isServerless = process.env.VERCEL === '1' || process.env.NETLIFY === 'true'
-const runtimeDataDir = isServerless
-  ? path.resolve(process.env.TMPDIR || process.env.TEMP || '/tmp', 'pixel-phone-simulator-data')
-  : path.resolve(process.cwd(), 'data')
+const isServerless =
+  Boolean(process.env.VERCEL) ||
+  Boolean(process.env.NETLIFY) ||
+  Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
+  Boolean(process.env.LAMBDA_TASK_ROOT)
+
+function resolveTempRoot() {
+  return process.env.TMPDIR || process.env.TEMP || process.env.TMP || os.tmpdir() || '/tmp'
+}
+
+function resolveRuntimeDataDir() {
+  if (isServerless) {
+    return path.resolve(resolveTempRoot(), 'pixel-phone-simulator-data')
+  }
+  return path.resolve(process.cwd(), 'data')
+}
+
+let runtimeDataDir = resolveRuntimeDataDir()
 const runtimeDataFile = path.join(runtimeDataDir, 'store.json')
 const bundledDataFile = path.resolve(process.cwd(), 'services', 'api', 'data', 'store.json')
 
@@ -59,21 +74,39 @@ export function createInitialState() {
 }
 
 function ensureDataFile() {
-  if (!fs.existsSync(runtimeDataDir)) {
-    fs.mkdirSync(runtimeDataDir, { recursive: true })
-  }
-  if (!fs.existsSync(runtimeDataFile)) {
-    if (isServerless && fs.existsSync(bundledDataFile)) {
-      fs.copyFileSync(bundledDataFile, runtimeDataFile)
-      return
+  try {
+    if (!fs.existsSync(runtimeDataDir)) {
+      fs.mkdirSync(runtimeDataDir, { recursive: true })
     }
-    fs.writeFileSync(runtimeDataFile, JSON.stringify(createInitialState(), null, 2), 'utf8')
+    if (!fs.existsSync(runtimeDataFile)) {
+      if (isServerless && fs.existsSync(bundledDataFile)) {
+        fs.copyFileSync(bundledDataFile, runtimeDataFile)
+        return
+      }
+      fs.writeFileSync(runtimeDataFile, JSON.stringify(createInitialState(), null, 2), 'utf8')
+    }
+  } catch (error) {
+    // In serverless environments cwd may be read-only; force fallback to temp dir.
+    const fallbackDir = path.resolve(resolveTempRoot(), 'pixel-phone-simulator-data')
+    runtimeDataDir = fallbackDir
+    if (!fs.existsSync(runtimeDataDir)) {
+      fs.mkdirSync(runtimeDataDir, { recursive: true })
+    }
+    const fallbackFile = path.join(runtimeDataDir, 'store.json')
+    if (!fs.existsSync(fallbackFile)) {
+      if (isServerless && fs.existsSync(bundledDataFile)) {
+        fs.copyFileSync(bundledDataFile, fallbackFile)
+      } else {
+        fs.writeFileSync(fallbackFile, JSON.stringify(createInitialState(), null, 2), 'utf8')
+      }
+    }
   }
 }
 
 export function loadStore() {
   ensureDataFile()
-  const content = fs.readFileSync(runtimeDataFile, 'utf8')
+  const file = path.join(runtimeDataDir, 'store.json')
+  const content = fs.readFileSync(file, 'utf8')
   const parsed = JSON.parse(content)
   return {
     ...createInitialState(),
@@ -83,7 +116,8 @@ export function loadStore() {
 
 export function saveStore(nextStore) {
   ensureDataFile()
-  fs.writeFileSync(runtimeDataFile, JSON.stringify(nextStore, null, 2), 'utf8')
+  const file = path.join(runtimeDataDir, 'store.json')
+  fs.writeFileSync(file, JSON.stringify(nextStore, null, 2), 'utf8')
 }
 
 export function upsertRole(store, roleInput, roleId) {
