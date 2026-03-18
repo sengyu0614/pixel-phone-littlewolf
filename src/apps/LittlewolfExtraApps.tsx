@@ -142,6 +142,9 @@ export function RoleMusicApp(props: AppRuntimeProps) {
   const [successText, setSuccessText] = useState('')
   const [apiCheckText, setApiCheckText] = useState('')
   const [isCheckingApi, setIsCheckingApi] = useState(false)
+  const [uploadProgressPercent, setUploadProgressPercent] = useState<number | null>(null)
+  const [uploadProgressText, setUploadProgressText] = useState('')
+  const [retrySongFile, setRetrySongFile] = useState<File | null>(null)
   const songUploadRef = useRef<HTMLInputElement | null>(null)
   const lyricsUploadRef = useRef<HTMLInputElement | null>(null)
   const addSongEntryRef = useRef<HTMLDivElement | null>(null)
@@ -471,21 +474,13 @@ export function RoleMusicApp(props: AppRuntimeProps) {
     }
   }
 
-  async function handleSongFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-    const maxSongUploadMb = MAX_SONG_UPLOAD_MB
-    const maxSongUploadBytes = maxSongUploadMb * 1024 * 1024
-    if (file.size > maxSongUploadBytes) {
-      setErrorText(
-        `歌曲文件过大（${formatSizeMb(file.size)}MB），当前上限 ${maxSongUploadMb}MB。请压缩后再上传。`,
-      )
-      return
-    }
+  async function uploadSongWithProgress(file: File) {
     setBusy(true)
     setErrorText('')
     setSuccessText('')
+    setRetrySongFile(file)
+    setUploadProgressPercent(0)
+    setUploadProgressText('初始化上传...')
     try {
       const initResult = await initMusicSongUpload({
         fileName: file.name,
@@ -500,26 +495,65 @@ export function RoleMusicApp(props: AppRuntimeProps) {
         const end = Math.min(bytes.length, start + SONG_UPLOAD_CHUNK_BYTES)
         const chunkBytes = bytes.subarray(start, end)
         const chunkBase64 = uint8ArrayToBase64(chunkBytes)
-        await uploadMusicSongChunk({
-          uploadId,
-          chunkIndex,
-          totalChunks,
-          chunkBase64,
-        })
-        setSuccessText(`正在上传歌曲：${chunkIndex + 1}/${totalChunks}`)
+        let uploaded = false
+        let lastError: unknown = null
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            await uploadMusicSongChunk({
+              uploadId,
+              chunkIndex,
+              totalChunks,
+              chunkBase64,
+            })
+            uploaded = true
+            break
+          } catch (error) {
+            lastError = error
+          }
+        }
+        if (!uploaded) {
+          throw lastError instanceof Error ? lastError : new Error('分片上传失败，请稍后重试')
+        }
+        const percent = Math.min(99, Math.round(((chunkIndex + 1) / totalChunks) * 100))
+        setUploadProgressPercent(percent)
+        setUploadProgressText(`上传中 ${chunkIndex + 1}/${totalChunks}`)
       }
+      setUploadProgressPercent(99)
+      setUploadProgressText('正在合并文件...')
       const result = await completeMusicSongUpload({ uploadId })
       setNowPlayingTrackId(result.music.nowPlayingTrackId || '')
       setPlaylist(Array.isArray(result.music.playlist) ? result.music.playlist : [])
       setUploadedSongs(Array.isArray(result.music.uploadedSongs) ? result.music.uploadedSongs : [])
       setUploadedLyrics(Array.isArray(result.music.uploadedLyrics) ? result.music.uploadedLyrics : [])
       setRecentPlayed(Array.isArray(result.music.recentPlayed) ? result.music.recentPlayed : [])
+      setUploadProgressPercent(100)
+      setUploadProgressText('上传完成')
       setSuccessText(`已上传歌曲：${file.name}`)
+      setRetrySongFile(null)
     } catch (error) {
+      setUploadProgressText('上传失败，可点击重试')
       setErrorText(error instanceof Error ? error.message : '上传歌曲失败')
     } finally {
       setBusy(false)
     }
+  }
+
+  async function handleSongFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    const maxSongUploadMb = MAX_SONG_UPLOAD_MB
+    const maxSongUploadBytes = maxSongUploadMb * 1024 * 1024
+    if (file.size > maxSongUploadBytes) {
+      setErrorText(
+        `歌曲文件过大（${formatSizeMb(file.size)}MB），当前上限 ${maxSongUploadMb}MB。请压缩后再上传。`,
+      )
+      setRetrySongFile(null)
+      setUploadProgressPercent(null)
+      setUploadProgressText('')
+      return
+    }
+    await uploadSongWithProgress(file)
   }
 
   async function handleLyricsFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -622,6 +656,17 @@ export function RoleMusicApp(props: AppRuntimeProps) {
               最近播放
             </PixelButton>
           </div>
+          {uploadProgressPercent !== null ? (
+            <div className="music-playlist-panel">
+              <div className="worldbook-item-head">
+                <strong>上传进度</strong>
+              </div>
+              <p className="text-pixel-text-muted">
+                {uploadProgressPercent}% {uploadProgressText ? `· ${uploadProgressText}` : ''}
+              </p>
+              <progress value={uploadProgressPercent} max={100} style={{ width: '100%' }} />
+            </div>
+          ) : null}
           {showPlaylistPanel ? (
             <div className="music-playlist-panel">
               <div className="worldbook-item-head">
@@ -842,6 +887,13 @@ export function RoleMusicApp(props: AppRuntimeProps) {
           {apiCheckText ? <p className="text-pixel-text-muted">{apiCheckText}</p> : null}
         </section>
         {errorText ? <p className="form-error">{errorText}</p> : null}
+        {retrySongFile ? (
+          <div className="chat-toolbar">
+            <PixelButton size="sm" variant="ghost" onClick={() => void uploadSongWithProgress(retrySongFile)} disabled={busy}>
+              重试上传：{retrySongFile.name}
+            </PixelButton>
+          </div>
+        ) : null}
         {successText ? <p className="form-success">{successText}</p> : null}
       </div>
     </PixelWindow>
