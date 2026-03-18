@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import {
   checkApiHealth,
+  completeMusicSongUpload,
   fetchMusicTrackFile,
+  initMusicSongUpload,
   fetchMusicState,
   getApiBaseUrl,
   removeMusicTrack,
   renameMusicTrack,
   setNowPlayingTrack as setMusicNowPlayingTrack,
+  uploadMusicSongChunk,
   uploadMusicLyricsFile,
-  uploadMusicSongFile,
 } from '../api/unifiedClient'
 import type { MusicLyricsFile, MusicRecentPlay, MusicSongFile, MusicTrack } from '../api/types'
 import { PixelButton, PixelWindow } from '../components/ui'
@@ -61,20 +63,18 @@ function formatPlayTimeLabel(iso: string) {
 
 const MAX_SONG_UPLOAD_MB = 15
 const MAX_LYRICS_UPLOAD_MB = 5
-const SERVERLESS_MAX_SONG_UPLOAD_MB = 2
-const SERVERLESS_MAX_LYRICS_UPLOAD_MB = 1
-
-function getRuntimeUploadLimitMb(type: 'song' | 'lyrics') {
-  const apiBase = getApiBaseUrl()
-  const isServerlessApi = /netlify\.app|vercel\.app/i.test(apiBase)
-  if (!isServerlessApi) {
-    return type === 'song' ? MAX_SONG_UPLOAD_MB : MAX_LYRICS_UPLOAD_MB
-  }
-  return type === 'song' ? SERVERLESS_MAX_SONG_UPLOAD_MB : SERVERLESS_MAX_LYRICS_UPLOAD_MB
-}
+const SONG_UPLOAD_CHUNK_BYTES = 512 * 1024
 
 function formatSizeMb(size: number) {
   return (Math.max(0, size) / 1024 / 1024).toFixed(2)
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array) {
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index] || 0)
+  }
+  return window.btoa(binary)
 }
 
 export function RoleForumApp(props: AppRuntimeProps) {
@@ -475,11 +475,11 @@ export function RoleMusicApp(props: AppRuntimeProps) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
-    const maxSongUploadMb = getRuntimeUploadLimitMb('song')
+    const maxSongUploadMb = MAX_SONG_UPLOAD_MB
     const maxSongUploadBytes = maxSongUploadMb * 1024 * 1024
     if (file.size > maxSongUploadBytes) {
       setErrorText(
-        `歌曲文件过大（${formatSizeMb(file.size)}MB），当前环境上限 ${maxSongUploadMb}MB。请压缩后再上传，避免网关超时。`,
+        `歌曲文件过大（${formatSizeMb(file.size)}MB），当前上限 ${maxSongUploadMb}MB。请压缩后再上传。`,
       )
       return
     }
@@ -487,18 +487,28 @@ export function RoleMusicApp(props: AppRuntimeProps) {
     setErrorText('')
     setSuccessText('')
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result || ''))
-        reader.onerror = () => reject(new Error('读取歌曲文件失败'))
-        reader.readAsDataURL(file)
-      })
-      const result = await uploadMusicSongFile({
+      const initResult = await initMusicSongUpload({
         fileName: file.name,
         mimeType: file.type || 'audio/mpeg',
         size: file.size,
-        dataUrl,
       })
+      const uploadId = initResult.uploadId
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const totalChunks = Math.max(1, Math.ceil(bytes.length / SONG_UPLOAD_CHUNK_BYTES))
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+        const start = chunkIndex * SONG_UPLOAD_CHUNK_BYTES
+        const end = Math.min(bytes.length, start + SONG_UPLOAD_CHUNK_BYTES)
+        const chunkBytes = bytes.subarray(start, end)
+        const chunkBase64 = uint8ArrayToBase64(chunkBytes)
+        await uploadMusicSongChunk({
+          uploadId,
+          chunkIndex,
+          totalChunks,
+          chunkBase64,
+        })
+        setSuccessText(`正在上传歌曲：${chunkIndex + 1}/${totalChunks}`)
+      }
+      const result = await completeMusicSongUpload({ uploadId })
       setNowPlayingTrackId(result.music.nowPlayingTrackId || '')
       setPlaylist(Array.isArray(result.music.playlist) ? result.music.playlist : [])
       setUploadedSongs(Array.isArray(result.music.uploadedSongs) ? result.music.uploadedSongs : [])
@@ -516,11 +526,11 @@ export function RoleMusicApp(props: AppRuntimeProps) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
-    const maxLyricsUploadMb = getRuntimeUploadLimitMb('lyrics')
+    const maxLyricsUploadMb = MAX_LYRICS_UPLOAD_MB
     const maxLyricsUploadBytes = maxLyricsUploadMb * 1024 * 1024
     if (file.size > maxLyricsUploadBytes) {
       setErrorText(
-        `歌词文件过大（${formatSizeMb(file.size)}MB），当前环境上限 ${maxLyricsUploadMb}MB。请精简后再上传。`,
+        `歌词文件过大（${formatSizeMb(file.size)}MB），当前上限 ${maxLyricsUploadMb}MB。请精简后再上传。`,
       )
       return
     }

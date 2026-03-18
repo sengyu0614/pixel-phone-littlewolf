@@ -342,6 +342,41 @@ export async function uploadMusicSongFile(input: {
   })
 }
 
+export async function initMusicSongUpload(input: { fileName: string; mimeType: string; size: number }) {
+  return request<{ ok: boolean; uploadId: string }>('/api/music/upload/song/init', {
+    method: 'POST',
+    body: JSON.stringify(input),
+    timeoutMs: 30000,
+  })
+}
+
+export async function uploadMusicSongChunk(input: {
+  uploadId: string
+  chunkIndex: number
+  totalChunks: number
+  chunkBase64: string
+}) {
+  return request<{ ok: boolean; uploadId: string; chunkIndex: number; receivedChunks: number }>(
+    '/api/music/upload/song/chunk',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+      timeoutMs: 120000,
+    },
+  )
+}
+
+export async function completeMusicSongUpload(input: { uploadId: string }) {
+  return request<{ ok: boolean; music: MusicState; trackId: string; uploadedSongId: string }>(
+    '/api/music/upload/song/complete',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+      timeoutMs: 120000,
+    },
+  )
+}
+
 export async function uploadMusicLyricsFile(input: {
   fileName: string
   size: number

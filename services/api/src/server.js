@@ -183,6 +183,32 @@ function sanitizeSongUploadInput(input) {
   }
 }
 
+function sanitizeSongUploadInitInput(input) {
+  const value = input || {}
+  return {
+    fileName: String(value.fileName || '').trim(),
+    mimeType: String(value.mimeType || '').trim() || 'audio/mpeg',
+    size: Math.max(0, Number(value.size) || 0),
+  }
+}
+
+function sanitizeSongUploadChunkInput(input) {
+  const value = input || {}
+  return {
+    uploadId: String(value.uploadId || '').trim(),
+    chunkIndex: Math.max(0, Number(value.chunkIndex) || 0),
+    totalChunks: Math.max(0, Number(value.totalChunks) || 0),
+    chunkBase64: String(value.chunkBase64 || '').trim(),
+  }
+}
+
+function sanitizeSongUploadCompleteInput(input) {
+  const value = input || {}
+  return {
+    uploadId: String(value.uploadId || '').trim(),
+  }
+}
+
 function sanitizeLyricsUploadInput(input) {
   const value = input || {}
   return {
@@ -200,6 +226,7 @@ function createEmptyMusicState() {
     uploadedSongs: [],
     uploadedLyrics: [],
     recentPlayed: [],
+    songUploadDrafts: {},
   }
 }
 
@@ -249,6 +276,8 @@ function getOrCreateDeviceMusicState(store, deviceId) {
   music.uploadedSongs = Array.isArray(music.uploadedSongs) ? music.uploadedSongs : []
   music.uploadedLyrics = Array.isArray(music.uploadedLyrics) ? music.uploadedLyrics : []
   music.recentPlayed = Array.isArray(music.recentPlayed) ? music.recentPlayed : []
+  music.songUploadDrafts =
+    music.songUploadDrafts && typeof music.songUploadDrafts === 'object' ? music.songUploadDrafts : {}
   return { music, changed, normalizedDeviceId }
 }
 
@@ -257,6 +286,34 @@ function getTrackNameFromFileName(fileName) {
   if (!normalized) return '未命名歌曲'
   const noExt = normalized.replace(/\.[^.]+$/, '')
   return noExt || '未命名歌曲'
+}
+
+function appendUploadedSongToMusic(scopedMusic, input) {
+  scopedMusic.playlist = Array.isArray(scopedMusic.playlist) ? scopedMusic.playlist : []
+  scopedMusic.uploadedSongs = Array.isArray(scopedMusic.uploadedSongs) ? scopedMusic.uploadedSongs : []
+  const track = {
+    id: `track-${randomUUID()}`,
+    name: getTrackNameFromFileName(input.fileName),
+    artist: '本地上传',
+    durationSec: 0,
+    addedAt: new Date().toISOString(),
+  }
+  scopedMusic.playlist.push(track)
+  if (!scopedMusic.nowPlayingTrackId) {
+    scopedMusic.nowPlayingTrackId = track.id
+    recordRecentPlay(scopedMusic, track.id)
+  }
+  const uploadedSong = {
+    id: `song-${randomUUID()}`,
+    fileName: input.fileName,
+    mimeType: input.mimeType,
+    size: input.size,
+    uploadedAt: new Date().toISOString(),
+    trackId: track.id,
+    dataUrl: input.dataUrl,
+  }
+  scopedMusic.uploadedSongs.unshift(uploadedSong)
+  return { track, uploadedSong }
 }
 
 function recordRecentPlay(music, trackId) {
@@ -985,30 +1042,7 @@ app.post('/api/music/upload/song', (req, res) => {
     if (!input.dataUrl.startsWith('data:')) {
       return sendError(req, res, 400, 'invalid_request', '歌曲文件格式无效')
     }
-    scopedMusic.playlist = Array.isArray(scopedMusic.playlist) ? scopedMusic.playlist : []
-    scopedMusic.uploadedSongs = Array.isArray(scopedMusic.uploadedSongs) ? scopedMusic.uploadedSongs : []
-    const track = {
-      id: `track-${randomUUID()}`,
-      name: getTrackNameFromFileName(input.fileName),
-      artist: '本地上传',
-      durationSec: 0,
-      addedAt: new Date().toISOString(),
-    }
-    scopedMusic.playlist.push(track)
-    if (!scopedMusic.nowPlayingTrackId) {
-      scopedMusic.nowPlayingTrackId = track.id
-      recordRecentPlay(scopedMusic, track.id)
-    }
-    const uploadedSong = {
-      id: `song-${randomUUID()}`,
-      fileName: input.fileName,
-      mimeType: input.mimeType,
-      size: input.size,
-      uploadedAt: new Date().toISOString(),
-      trackId: track.id,
-      dataUrl: input.dataUrl,
-    }
-    scopedMusic.uploadedSongs.unshift(uploadedSong)
+    const { track, uploadedSong } = appendUploadedSongToMusic(scopedMusic, input)
     saveStore(store)
     return res.status(201).json({
       ok: true,
@@ -1019,6 +1053,122 @@ app.post('/api/music/upload/song', (req, res) => {
   } catch (error) {
     logError('music:upload-song', error, getRequestId(req))
     return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '上传歌曲失败')
+  }
+})
+
+app.post('/api/music/upload/song/init', (req, res) => {
+  try {
+    const store = loadStore()
+    const { music: scopedMusic } = getOrCreateDeviceMusicState(store, resolveRequestDeviceId(req))
+    const input = sanitizeSongUploadInitInput(req.body)
+    if (!input.fileName || !input.size) {
+      return sendError(req, res, 400, 'invalid_request', 'fileName/size 必填')
+    }
+    scopedMusic.songUploadDrafts =
+      scopedMusic.songUploadDrafts && typeof scopedMusic.songUploadDrafts === 'object'
+        ? scopedMusic.songUploadDrafts
+        : {}
+    const uploadId = `upload-${randomUUID()}`
+    scopedMusic.songUploadDrafts[uploadId] = {
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      size: input.size,
+      totalChunks: 0,
+      chunks: {},
+      createdAt: new Date().toISOString(),
+    }
+    saveStore(store)
+    return res.status(201).json({ ok: true, uploadId })
+  } catch (error) {
+    logError('music:upload-song:init', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '初始化上传失败')
+  }
+})
+
+app.post('/api/music/upload/song/chunk', (req, res) => {
+  try {
+    const store = loadStore()
+    const { music: scopedMusic } = getOrCreateDeviceMusicState(store, resolveRequestDeviceId(req))
+    const input = sanitizeSongUploadChunkInput(req.body)
+    if (!input.uploadId || !input.chunkBase64 || input.totalChunks <= 0) {
+      return sendError(req, res, 400, 'invalid_request', 'uploadId/chunkBase64/totalChunks 必填')
+    }
+    if (!/^[A-Za-z0-9+/=]+$/.test(input.chunkBase64)) {
+      return sendError(req, res, 400, 'invalid_request', 'chunkBase64 格式无效')
+    }
+    scopedMusic.songUploadDrafts =
+      scopedMusic.songUploadDrafts && typeof scopedMusic.songUploadDrafts === 'object'
+        ? scopedMusic.songUploadDrafts
+        : {}
+    const draft = scopedMusic.songUploadDrafts[input.uploadId]
+    if (!draft || typeof draft !== 'object') {
+      return sendError(req, res, 404, 'not_found', '上传会话不存在或已过期')
+    }
+    const totalChunks = Math.max(1, Math.min(400, input.totalChunks))
+    if (input.chunkIndex < 0 || input.chunkIndex >= totalChunks) {
+      return sendError(req, res, 400, 'invalid_request', 'chunkIndex 越界')
+    }
+    if (draft.totalChunks && draft.totalChunks !== totalChunks) {
+      return sendError(req, res, 400, 'invalid_request', 'totalChunks 与会话不一致')
+    }
+    draft.totalChunks = totalChunks
+    draft.chunks = draft.chunks && typeof draft.chunks === 'object' ? draft.chunks : {}
+    draft.chunks[input.chunkIndex] = input.chunkBase64
+    saveStore(store)
+    return res.json({
+      ok: true,
+      uploadId: input.uploadId,
+      chunkIndex: input.chunkIndex,
+      receivedChunks: Object.keys(draft.chunks).length,
+    })
+  } catch (error) {
+    logError('music:upload-song:chunk', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '分片上传失败')
+  }
+})
+
+app.post('/api/music/upload/song/complete', (req, res) => {
+  try {
+    const store = loadStore()
+    const { music: scopedMusic } = getOrCreateDeviceMusicState(store, resolveRequestDeviceId(req))
+    const input = sanitizeSongUploadCompleteInput(req.body)
+    if (!input.uploadId) {
+      return sendError(req, res, 400, 'invalid_request', 'uploadId 必填')
+    }
+    scopedMusic.songUploadDrafts =
+      scopedMusic.songUploadDrafts && typeof scopedMusic.songUploadDrafts === 'object'
+        ? scopedMusic.songUploadDrafts
+        : {}
+    const draft = scopedMusic.songUploadDrafts[input.uploadId]
+    if (!draft || typeof draft !== 'object') {
+      return sendError(req, res, 404, 'not_found', '上传会话不存在或已过期')
+    }
+    const totalChunks = Math.max(1, Number(draft.totalChunks) || 0)
+    const chunks = draft.chunks && typeof draft.chunks === 'object' ? draft.chunks : {}
+    for (let index = 0; index < totalChunks; index += 1) {
+      if (!chunks[index]) {
+        return sendError(req, res, 400, 'invalid_request', `分片缺失：${index + 1}/${totalChunks}`)
+      }
+    }
+    const mergedBase64 = Array.from({ length: totalChunks }, (_item, index) => String(chunks[index] || '')).join('')
+    const dataUrl = `data:${String(draft.mimeType || 'audio/mpeg')};base64,${mergedBase64}`
+    const { track, uploadedSong } = appendUploadedSongToMusic(scopedMusic, {
+      fileName: String(draft.fileName || ''),
+      mimeType: String(draft.mimeType || 'audio/mpeg'),
+      size: Math.max(0, Number(draft.size) || 0),
+      dataUrl,
+    })
+    delete scopedMusic.songUploadDrafts[input.uploadId]
+    saveStore(store)
+    return res.json({
+      ok: true,
+      trackId: track.id,
+      uploadedSongId: uploadedSong.id,
+      music: buildPublicMusicState(scopedMusic),
+    })
+  } catch (error) {
+    logError('music:upload-song:complete', error, getRequestId(req))
+    return sendError(req, res, 400, 'invalid_request', error instanceof Error ? error.message : '合并上传失败')
   }
 })
 
