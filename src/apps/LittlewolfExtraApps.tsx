@@ -61,8 +61,17 @@ function formatPlayTimeLabel(iso: string) {
 
 const MAX_SONG_UPLOAD_MB = 15
 const MAX_LYRICS_UPLOAD_MB = 5
-const MAX_SONG_UPLOAD_BYTES = MAX_SONG_UPLOAD_MB * 1024 * 1024
-const MAX_LYRICS_UPLOAD_BYTES = MAX_LYRICS_UPLOAD_MB * 1024 * 1024
+const SERVERLESS_MAX_SONG_UPLOAD_MB = 2
+const SERVERLESS_MAX_LYRICS_UPLOAD_MB = 1
+
+function getRuntimeUploadLimitMb(type: 'song' | 'lyrics') {
+  const apiBase = getApiBaseUrl()
+  const isServerlessApi = /netlify\.app|vercel\.app/i.test(apiBase)
+  if (!isServerlessApi) {
+    return type === 'song' ? MAX_SONG_UPLOAD_MB : MAX_LYRICS_UPLOAD_MB
+  }
+  return type === 'song' ? SERVERLESS_MAX_SONG_UPLOAD_MB : SERVERLESS_MAX_LYRICS_UPLOAD_MB
+}
 
 function formatSizeMb(size: number) {
   return (Math.max(0, size) / 1024 / 1024).toFixed(2)
@@ -466,9 +475,11 @@ export function RoleMusicApp(props: AppRuntimeProps) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
-    if (file.size > MAX_SONG_UPLOAD_BYTES) {
+    const maxSongUploadMb = getRuntimeUploadLimitMb('song')
+    const maxSongUploadBytes = maxSongUploadMb * 1024 * 1024
+    if (file.size > maxSongUploadBytes) {
       setErrorText(
-        `歌曲文件过大（${formatSizeMb(file.size)}MB），当前上限 ${MAX_SONG_UPLOAD_MB}MB。请压缩后再上传，避免超时。`,
+        `歌曲文件过大（${formatSizeMb(file.size)}MB），当前环境上限 ${maxSongUploadMb}MB。请压缩后再上传，避免网关超时。`,
       )
       return
     }
@@ -505,9 +516,11 @@ export function RoleMusicApp(props: AppRuntimeProps) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
-    if (file.size > MAX_LYRICS_UPLOAD_BYTES) {
+    const maxLyricsUploadMb = getRuntimeUploadLimitMb('lyrics')
+    const maxLyricsUploadBytes = maxLyricsUploadMb * 1024 * 1024
+    if (file.size > maxLyricsUploadBytes) {
       setErrorText(
-        `歌词文件过大（${formatSizeMb(file.size)}MB），当前上限 ${MAX_LYRICS_UPLOAD_MB}MB。请精简文件后再上传。`,
+        `歌词文件过大（${formatSizeMb(file.size)}MB），当前环境上限 ${maxLyricsUploadMb}MB。请精简后再上传。`,
       )
       return
     }
